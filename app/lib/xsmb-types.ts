@@ -11,15 +11,24 @@
  *    - DELAYED: Draw is delayed / system waiting for official feed
  */
 
+export type ExplicitDrawState =
+  | 'BEFORE_DRAW'
+  | 'DRAWING'
+  | 'WAITING_FOR_RESULT'
+  | 'SYNCING'
+  | 'RESULT_AVAILABLE'
+  | 'RESULT_MISSING'
+  | 'SOURCE_ERROR';
+
 export type DrawLifecycleState =
-  | 'SCHEDULED' // Kỳ quay tiếp theo (Chờ kỳ quay)
-  | 'DRAWING'   // Kỳ quay đang diễn ra (🔴 Đang quay)
-  | 'UPDATING'  // Đang cập nhật kết quả (Tiến độ giải)
-  | 'COMPLETED' // Kết quả đã cập nhật (🟢 Đã có kết quả)
-  | 'DELAYED'   // Kết quả đang chậm (Chờ dữ liệu chính thức)
-  | 'FUTURE'    // Ngày trong tương lai
-  | 'EMPTY'     // Chưa có kết quả / ngày không quay
-  | 'ERROR';    // Lỗi không thể tải dữ liệu
+  | ExplicitDrawState
+  | 'SCHEDULED' // Legacy alias for BEFORE_DRAW
+  | 'UPDATING'  // Legacy alias for SYNCING/DRAWING
+  | 'COMPLETED' // Legacy alias for RESULT_AVAILABLE
+  | 'DELAYED'   // Legacy alias for WAITING_FOR_RESULT
+  | 'FUTURE'    // Future date
+  | 'EMPTY'     // Legacy alias for RESULT_MISSING
+  | 'ERROR';    // Legacy alias for SOURCE_ERROR
 
 export type DrawStatus = DrawLifecycleState;
 

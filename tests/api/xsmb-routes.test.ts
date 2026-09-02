@@ -86,15 +86,15 @@ describe('XSMB REST API Route Handlers (/api/v1/xsmb)', () => {
       expect(res.headers.get('content-type')).toContain('application/json');
     });
 
-    it('should return 404 with standard error envelope when no draw exists', async () => {
+    it('should return 200 for today endpoint even when not in DB initially', async () => {
+      const today = getTodayVN();
       const req = createNextRequest('/api/v1/xsmb/today');
       const res = await getTodayRoute(req);
       const body = await res.json();
 
-      expect(res.status).toBe(404);
-      expect(body.error).toBeDefined();
-      expect(body.error.code).toBe('XSMB_RESULT_NOT_FOUND');
-      expect(body.error.message).toBeDefined();
+      expect(res.status).toBe(200);
+      expect(body.data).toBeDefined();
+      expect(body.data.date).toBe(today);
     });
   });
 
@@ -326,6 +326,20 @@ describe('XSMB REST API Route Handlers (/api/v1/xsmb)', () => {
       expect(res.status).toBe(200);
       expect(body.data.status).toBe('UP');
       expect(body.data.database).toBe('CONNECTED');
+    });
+  });
+
+  describe('GET /api/v1/xsmb/diagnostic', () => {
+    it('should return 200 with diagnostic status and timezone metadata', async () => {
+      const { GET: getDiagnosticRoute } = await import('../../app/api/v1/xsmb/diagnostic/route');
+      const req = createNextRequest('/api/v1/xsmb/diagnostic');
+      const res = await getDiagnosticRoute(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.data.vietnamDate).toBeDefined();
+      expect(body.data.database.connected).toBe(true);
+      expect(body.data.drawSchedule.startTime).toBe('18:15');
     });
   });
 });

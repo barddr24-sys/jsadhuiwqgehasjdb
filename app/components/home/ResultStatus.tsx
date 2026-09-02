@@ -11,6 +11,13 @@ const STATUS_CONFIG: Record<
   DrawLifecycleState,
   { icon: string; text: string; color: string; bg: string; border: string }
 > = {
+  BEFORE_DRAW: {
+    icon: '🕐',
+    text: 'CHƯA ĐẾN GIỜ QUAY THƯỞNG',
+    color: 'var(--status-scheduled-text)',
+    bg:    'var(--status-scheduled-bg)',
+    border:'var(--border)',
+  },
   SCHEDULED: {
     icon: '🕐',
     text: 'CHƯA ĐẾN GIỜ QUAY THƯỞNG',
@@ -25,11 +32,32 @@ const STATUS_CONFIG: Record<
     bg:    'var(--status-drawing-bg)',
     border:'var(--border)',
   },
+  WAITING_FOR_RESULT: {
+    icon: '⏳',
+    text: 'ĐANG CHỜ KẾT QUẢ CHÍNH THỨC',
+    color: 'var(--status-delayed-text)',
+    bg:    'var(--status-delayed-bg)',
+    border:'var(--status-delayed-border)',
+  },
+  SYNCING: {
+    icon: '⚡',
+    text: 'ĐANG CẬP NHẬT KẾT QUẢ',
+    color: 'var(--status-updating-text)',
+    bg:    'var(--status-updating-bg)',
+    border:'var(--status-updating-border)',
+  },
   UPDATING: {
     icon: '🔄',
     text: 'ĐANG CẬP NHẬT KẾT QUẢ',
     color: 'var(--status-updating-text)',
     bg:    'var(--status-updating-bg)',
+    border:'var(--border)',
+  },
+  RESULT_AVAILABLE: {
+    icon: '✅',
+    text: 'ĐÃ CÓ ĐẦY ĐỦ KẾT QUẢ',
+    color: 'var(--status-completed-text)',
+    bg:    'var(--status-completed-bg)',
     border:'var(--border)',
   },
   COMPLETED: {
@@ -46,6 +74,13 @@ const STATUS_CONFIG: Record<
     bg:    'var(--status-delayed-bg)',
     border:'var(--border)',
   },
+  RESULT_MISSING: {
+    icon: '📭',
+    text: 'CHƯA CÓ KẾT QUẢ',
+    color: 'var(--text-muted)',
+    bg:    'var(--surface-muted)',
+    border:'var(--border)',
+  },
   FUTURE: {
     icon: '📅',
     text: 'CHƯA ĐẾN NGÀY QUAY',
@@ -58,6 +93,13 @@ const STATUS_CONFIG: Record<
     text: 'CHƯA CÓ KẾT QUẢ',
     color: 'var(--text-muted)',
     bg:    'var(--surface-muted)',
+    border:'var(--border)',
+  },
+  SOURCE_ERROR: {
+    icon: '⚠️',
+    text: 'LỖI ĐỒNG BỘ NGUỒN',
+    color: 'var(--status-error-text)',
+    bg:    'var(--status-error-bg)',
     border:'var(--border)',
   },
   ERROR: {

@@ -5,21 +5,32 @@
  * Draw order: Giải 7 -> Giải 6 -> Giải 5 -> Giải 4 -> Giải 3 -> Giải 2 -> Giải 1 -> Đặc Biệt.
  */
 
-import type { DrawLifecycleState, XSMBPrizes, PrizeMilestone } from './xsmb-types';
+import type { DrawLifecycleState, ExplicitDrawState, XSMBPrizes, PrizeMilestone } from './xsmb-types';
 import { PRIZE_GROUPS } from './xsmb-types';
-import { isFutureDate, isToday, getNowVN } from './date-utils';
+import { isFutureDate, isToday, getVNTimeParts, DRAW_CONFIG } from './date-utils';
 
-export const DRAW_TARGET_HOUR = 18;
-export const DRAW_TARGET_MINUTE = 15;
+export const DRAW_TARGET_HOUR = DRAW_CONFIG.hour;
+export const DRAW_TARGET_MINUTE = DRAW_CONFIG.minute;
+
+/** Explicit API Draw Lifecycle States */
+export const EXPLICIT_DRAW_STATE = {
+  BEFORE_DRAW: 'BEFORE_DRAW',
+  DRAWING: 'DRAWING',
+  WAITING_FOR_RESULT: 'WAITING_FOR_RESULT',
+  SYNCING: 'SYNCING',
+  RESULT_AVAILABLE: 'RESULT_AVAILABLE',
+  RESULT_MISSING: 'RESULT_MISSING',
+  SOURCE_ERROR: 'SOURCE_ERROR',
+} as const;
+
+export type { ExplicitDrawState };
 
 /** Total seconds remaining until 18:15 today (Vietnam Time) */
-export function getSecondsUntilDraw(): number {
-  const now = getNowVN();
-  const target = new Date(now);
-  target.setHours(DRAW_TARGET_HOUR, DRAW_TARGET_MINUTE, 0, 0);
-
-  const diffMs = target.getTime() - now.getTime();
-  return Math.max(0, Math.floor(diffMs / 1000));
+export function getSecondsUntilDraw(nowVN?: Date): number {
+  const parts = nowVN ? getVNTimeParts(nowVN) : getVNTimeParts();
+  const currentTotalSeconds = parts.hour * 3600 + parts.minute * 60 + parts.second;
+  const targetTotalSeconds = DRAW_TARGET_HOUR * 3600 + DRAW_TARGET_MINUTE * 60;
+  return Math.max(0, targetTotalSeconds - currentTotalSeconds);
 }
 
 /** Formats seconds into HH : MM : SS */
@@ -106,11 +117,45 @@ export function getPrizeMilestones(prizes: XSMBPrizes | null): PrizeMilestone[] 
 }
 
 /**
- * Compute the draw status based on date, time, and data
+ * Computes the mandatory ExplicitDrawState based on date, time, data existence, and sync activity.
+ */
+export function computeExplicitDrawStatus(
+  dateStr: string,
+  prizes: XSMBPrizes | null,
+  options?: { isSyncing?: boolean; hasSourceError?: boolean; nowVN?: Date }
+): ExplicitDrawState {
+  if (options?.hasSourceError) return 'SOURCE_ERROR';
+
+  const complete = isResultComplete(prizes);
+  if (complete) return 'RESULT_AVAILABLE';
+
+  if (options?.isSyncing) return 'SYNCING';
+
+  if (isFutureDate(dateStr)) return 'BEFORE_DRAW';
+
+  if (isToday(dateStr)) {
+    const parts = options?.nowVN ? getVNTimeParts(options.nowVN) : getVNTimeParts();
+    const minutes = parts.totalMinutes;
+    const drawStartMinutes = DRAW_CONFIG.hour * 60 + DRAW_CONFIG.minute;
+    const drawEndMinutes = DRAW_CONFIG.windowEndHour * 60 + DRAW_CONFIG.windowEndMinute;
+
+    if (minutes < drawStartMinutes) return 'BEFORE_DRAW';
+    if (minutes <= drawEndMinutes) return 'DRAWING';
+
+    return 'WAITING_FOR_RESULT';
+  }
+
+  // Past date without complete result
+  return 'RESULT_MISSING';
+}
+
+/**
+ * Compute the UI draw status based on date, time, and data (backward compatible)
  */
 export function computeDrawStatus(
   dateStr: string,
   prizes: XSMBPrizes | null,
+  nowVN?: Date
 ): DrawLifecycleState {
   if (isFutureDate(dateStr)) return 'FUTURE';
 
@@ -121,15 +166,16 @@ export function computeDrawStatus(
   if (anyData) return 'UPDATING';
 
   if (!isToday(dateStr)) {
-    return 'ERROR';
+    return 'EMPTY';
   }
 
-  const now = getNowVN();
-  const minutes = now.getHours() * 60 + now.getMinutes();
+  const parts = nowVN ? getVNTimeParts(nowVN) : getVNTimeParts();
+  const minutes = parts.totalMinutes;
+  const drawStartMinutes = DRAW_CONFIG.hour * 60 + DRAW_CONFIG.minute;
+  const drawEndMinutes = DRAW_CONFIG.windowEndHour * 60 + DRAW_CONFIG.windowEndMinute;
 
-  if (minutes < 18 * 60 + 10) return 'SCHEDULED';
-  if (minutes < 18 * 60 + 35) return 'DRAWING';
-  if (minutes < 18 * 60 + 55) return 'UPDATING';
+  if (minutes < drawStartMinutes) return 'SCHEDULED';
+  if (minutes <= drawEndMinutes) return 'DRAWING';
 
-  return 'DELAYED';
+  return 'UPDATING';
 }

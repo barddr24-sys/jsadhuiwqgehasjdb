@@ -17,7 +17,7 @@ export async function GET(request?: NextRequest) {
     return apiSuccess(data, 200, {
       'Cache-Control': data.isComplete
         ? 'public, max-age=300, stale-while-revalidate=60'
-        : 'public, max-age=15, stale-while-revalidate=15',
+        : 'no-cache, no-store, max-age=0',
       'Server-Timing': timing,
       'X-Data-Source': data.sourceType || 'mongodb',
     });

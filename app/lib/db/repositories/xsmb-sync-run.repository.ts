@@ -55,6 +55,10 @@ export class XSMBSyncRunRepository {
       .lean<IXSMBSyncRun[]>();
   }
 
+  async findRecent(limit: number = 20): Promise<IXSMBSyncRun[]> {
+    return this.findRecentRuns(limit);
+  }
+
   async findByRunId(syncRunId: string): Promise<IXSMBSyncRun | null> {
     await this.ensureConnection();
     return XSMBSyncRunModel.findOne({ syncRunId }).lean<IXSMBSyncRun>();

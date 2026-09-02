@@ -76,13 +76,32 @@ function mapResultsToPrizes(dto: DrawResponseDTO): XSMBPrizes | null {
  */
 function mapDrawStatus(apiStatus: string, date: string): DrawLifecycleState {
   switch (apiStatus) {
-    case 'READY':     return 'COMPLETED';
-    case 'PARTIAL':   return 'UPDATING';
-    case 'UPDATING':  return 'UPDATING';
-    case 'SCHEDULED': return isToday(date) ? 'SCHEDULED' : 'EMPTY';
-    case 'DELAYED':   return 'DELAYED';
-    case 'CONFLICT':  return 'ERROR';
-    default:          return 'EMPTY';
+    case 'RESULT_AVAILABLE':
+    case 'READY':
+      return 'RESULT_AVAILABLE';
+    case 'BEFORE_DRAW':
+      return 'BEFORE_DRAW';
+    case 'DRAWING':
+      return 'DRAWING';
+    case 'WAITING_FOR_RESULT':
+      return 'WAITING_FOR_RESULT';
+    case 'SYNCING':
+      return 'SYNCING';
+    case 'RESULT_MISSING':
+      return 'RESULT_MISSING';
+    case 'SOURCE_ERROR':
+      return 'SOURCE_ERROR';
+    case 'PARTIAL':
+    case 'UPDATING':
+      return 'SYNCING';
+    case 'SCHEDULED':
+      return isToday(date) ? 'BEFORE_DRAW' : 'RESULT_MISSING';
+    case 'DELAYED':
+      return 'WAITING_FOR_RESULT';
+    case 'CONFLICT':
+      return 'SOURCE_ERROR';
+    default:
+      return isToday(date) ? 'BEFORE_DRAW' : 'RESULT_MISSING';
   }
 }
 
@@ -143,8 +162,8 @@ export default function HomeScreen({ initialData }: HomeScreenProps) {
   // Derive initial values from server-rendered initialData if available
   const initialPrizes = initialData?.today ? mapResultsToPrizes(initialData.today) : null;
   const initialStatus = initialData?.today
-    ? mapDrawStatus(initialData.today.status, defaultDate)
-    : 'SCHEDULED';
+    ? mapDrawStatus(initialData.today.explicitStatus || initialData.today.status, defaultDate)
+    : 'BEFORE_DRAW';
 
   // Live status from real API
   const [currentStatus, setCurrentStatus] = useState<DrawLifecycleState>(initialStatus);
@@ -188,7 +207,7 @@ export default function HomeScreen({ initialData }: HomeScreenProps) {
           setPrizes(null);
           setSpecialNum(null);
           setUpdatedAt('—');
-          setCurrentStatus(isToday(date) ? 'SCHEDULED' : 'EMPTY');
+          setCurrentStatus(isToday(date) ? 'BEFORE_DRAW' : 'RESULT_MISSING');
           setFetchError(null);
           return;
         }
@@ -199,7 +218,8 @@ export default function HomeScreen({ initialData }: HomeScreenProps) {
       const dto: DrawResponseDTO = json.data;
 
       const mappedPrizes = mapResultsToPrizes(dto);
-      const mappedStatus = mapDrawStatus(dto.status, date);
+      const rawStatus = dto.explicitStatus || dto.status;
+      const mappedStatus = mapDrawStatus(rawStatus, date);
 
       setPrizes(mappedPrizes);
       setSpecialNum(mappedPrizes?.dacBiet?.[0] ?? null);
@@ -210,7 +230,7 @@ export default function HomeScreen({ initialData }: HomeScreenProps) {
       if (err instanceof Error && err.name === 'AbortError') return;
       console.error('[HomeScreen] Draw fetch failed:', err instanceof Error ? err.message : err);
       setFetchError('Không thể tải dữ liệu. Vui lòng thử lại.');
-      setCurrentStatus('ERROR');
+      setCurrentStatus('SOURCE_ERROR');
       setPrizes(null);
       setSpecialNum(null);
     } finally {
@@ -273,15 +293,24 @@ export default function HomeScreen({ initialData }: HomeScreenProps) {
     return () => controller.abort();
   }, [selectedDate, initialData, fetchDraw, fetchStats, fetchHistory, stats7Day.length, recentResults.length]);
 
-  // ─── Auto-refresh during draw time (18:15 – 18:35 VN) ────────────────────
+  // ─── Auto-refresh during & post-draw until result is RESULT_AVAILABLE ─────
   useEffect(() => {
     if (!isToday(selectedDate)) return;
-    if (currentStatus !== 'UPDATING' && currentStatus !== 'DRAWING') return;
+    const isCompleted = currentStatus === 'RESULT_AVAILABLE' || currentStatus === 'COMPLETED';
+    if (isCompleted) return; // Stop polling immediately when complete
+
+    let pollCount = 0;
+    const maxPolls = 150; // Safety cap: max ~30 minutes of polling
 
     const interval = setInterval(() => {
+      pollCount++;
+      if (pollCount > maxPolls) {
+        clearInterval(interval);
+        return;
+      }
       const controller = new AbortController();
       fetchDraw(selectedDate, controller.signal);
-    }, 15_000); // 15s lightweight polling during active draw
+    }, 12_000); // 12s interval for responsive result detection
 
     return () => clearInterval(interval);
   }, [selectedDate, currentStatus, fetchDraw]);

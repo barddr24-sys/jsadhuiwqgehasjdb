@@ -15,8 +15,8 @@ export default function DrawStatusCard({
   milestones,
   onCountdownComplete,
 }: DrawStatusCardProps) {
-  // ─── STATE 1: SCHEDULED ──────────────────────────────────────────────────
-  if (status === 'SCHEDULED' || status === 'FUTURE') {
+  // ─── STATE 1: BEFORE_DRAW / SCHEDULED / FUTURE ──────────────────────────
+  if (status === 'BEFORE_DRAW' || status === 'SCHEDULED' || status === 'FUTURE') {
     return (
       <section
         aria-label="Trạng thái kỳ quay tiếp theo"
@@ -108,7 +108,7 @@ export default function DrawStatusCard({
               KỲ QUAY ĐANG DIỄN RA
             </h2>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Đang quay trực tiếp tại trường quay Hội đồng XSMB
+              Đang quay trực tiếp tại trường quay Hội đồng XSMB (18:15 – 18:35)
             </p>
           </div>
 
@@ -149,8 +149,60 @@ export default function DrawStatusCard({
     );
   }
 
-  // ─── STATE 3: UPDATING ───────────────────────────────────────────────────
-  if (status === 'UPDATING') {
+  // ─── STATE 3: WAITING_FOR_RESULT / DELAYED ───────────────────────────────
+  if (status === 'WAITING_FOR_RESULT' || status === 'DELAYED') {
+    return (
+      <section
+        aria-label="Đang chờ kết quả chính thức"
+        style={{
+          margin: '0 16px 16px',
+          padding: '16px 18px',
+          borderRadius: 16,
+          backgroundColor: 'var(--status-delayed-bg)',
+          border: '1px solid var(--status-delayed-border)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ fontSize: 20, color: 'var(--status-delayed-text)', lineHeight: 1 }}>⏳</span>
+            <div>
+              <h2
+                style={{
+                  fontSize: 14,
+                  fontWeight: 900,
+                  letterSpacing: '0.04em',
+                  color: 'var(--status-delayed-text)',
+                  margin: '0 0 3px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                ĐANG CHỜ KẾT QUẢ CHÍNH THỨC
+              </h2>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Hệ thống đang tự động kiểm tra và đồng bộ dữ liệu từ trường quay...
+              </p>
+            </div>
+          </div>
+          <span
+            className="live-pulse-dot"
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: 'var(--status-delayed-text)',
+              display: 'inline-block',
+              marginTop: 4,
+              flexShrink: 0,
+            }}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  // ─── STATE 4: SYNCING / UPDATING ─────────────────────────────────────────
+  if (status === 'SYNCING' || status === 'UPDATING') {
     const activeMilestones = milestones || [
       { key: 'giaiBay', label: 'Giải 7', isComplete: true, count: 4 },
       { key: 'giaiSau', label: 'Giải 6', isComplete: true, count: 3 },
@@ -246,41 +298,41 @@ export default function DrawStatusCard({
     );
   }
 
-  // ─── STATE 4: COMPLETED ──────────────────────────────────────────────────
-  if (status === 'COMPLETED') {
-    return;
+  // ─── STATE 5: RESULT_AVAILABLE / COMPLETED ───────────────────────────────
+  if (status === 'RESULT_AVAILABLE' || status === 'COMPLETED') {
+    return null;
   }
 
-  // ─── STATE 5: DELAYED / ERROR ────────────────────────────────────────────
+  // ─── STATE 6: RESULT_MISSING / EMPTY / ERROR / SOURCE_ERROR ──────────────
   return (
     <section
-      aria-label="Kết quả đang chậm"
+      aria-label="Thông báo trạng thái"
       style={{
         margin: '0 16px 16px',
         padding: '16px 18px',
         borderRadius: 16,
-        backgroundColor: 'var(--status-delayed-bg)',
-        border: '1px solid var(--status-delayed-border)',
+        backgroundColor: 'var(--surface-muted)',
+        border: '1px solid var(--border)',
         boxShadow: 'var(--shadow-sm)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <span style={{ fontSize: 18, color: 'var(--status-delayed-text)', lineHeight: 1 }}>⚠️</span>
+        <span style={{ fontSize: 18, color: 'var(--text-muted)', lineHeight: 1 }}>📭</span>
         <div>
           <h2
             style={{
               fontSize: 14,
               fontWeight: 900,
               letterSpacing: '0.04em',
-              color: 'var(--status-delayed-text)',
+              color: 'var(--text-primary)',
               margin: '0 0 3px',
               textTransform: 'uppercase',
             }}
           >
-            KẾT QUẢ ĐANG CHẬM
+            CHƯA CÓ KẾT QUẢ
           </h2>
           <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
-            Hệ thống đang chờ dữ liệu chính thức từ trường quay.
+            Không có kết quả XSMB cho ngày được chọn.
           </p>
         </div>
       </div>

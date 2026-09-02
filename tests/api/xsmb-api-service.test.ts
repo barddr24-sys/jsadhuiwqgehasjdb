@@ -57,29 +57,53 @@ describe('XSMBAPIService Integration Tests', () => {
       expect(res.isStale).toBe(false);
     });
 
-    it('should fallback to latest available draw if today draw is not in MongoDB yet', async () => {
-      const pastDate = addDays(getTodayVN(), -1);
-      await xsmbDrawRepository.create({
-        drawDate: pastDate,
-        status: DRAW_STATUS.READY,
-        results: FIXTURE_VALID_RESULTS_2,
-      });
+    it('should return canonical today date with pending status if today draw is not in MongoDB yet and sync fails', async () => {
+      const today = getTodayVN();
+      const mockSyncJob = {
+        execute: async () => ({ status: 'FAILED' as const, date: today, jobId: 'mock', durationMs: 1, attempts: 1, lockAcquired: true }),
+        clearInFlightJobs: () => {},
+      };
+      const customService = new XSMBAPIService(xsmbDrawRepository, undefined, mockSyncJob as never);
 
-      const res = await service.getTodayDraw();
-      expect(res.date).toBe(pastDate);
-      expect(res.status).toBe(DRAW_STATUS.READY);
-      expect(res.results.special[0]).toBe('85429');
+      const res = await customService.getTodayDraw();
+      expect(res.date).toBe(today); // Strictly returns today, NOT yesterday
+      expect(res.isComplete).toBe(false);
+      expect(['SCHEDULED', 'UPDATING', 'DRAWING']).toContain(res.status);
     });
 
-    it('should throw 404 when MongoDB has no draws at all', async () => {
-      await expect(service.getTodayDraw()).rejects.toThrow(XSMBAPIError);
-      try {
-        await service.getTodayDraw();
-      } catch (err: unknown) {
-        const error = err as XSMBAPIError;
-        expect(error.statusCode).toBe(404);
-        expect(error.code).toBe('XSMB_RESULT_NOT_FOUND');
-      }
+    it('should return structured pending DTO when MongoDB has no draws at all and sync produces no record', async () => {
+      const today = getTodayVN();
+      const mockSyncJob = {
+        execute: async () => ({ status: 'FAILED' as const, date: today, jobId: 'mock', durationMs: 1, attempts: 1, lockAcquired: true }),
+        clearInFlightJobs: () => {},
+      };
+      const customService = new XSMBAPIService(xsmbDrawRepository, undefined, mockSyncJob as never);
+
+      const res = await customService.getTodayDraw();
+      expect(res.date).toBe(today);
+      expect(res.isComplete).toBe(false);
+      expect(res.results.special).toEqual([]);
+    });
+  });
+
+  describe('1B. Diagnostic Endpoint Logic (getDiagnostic)', () => {
+    it('should return comprehensive diagnostic information without leaking secrets', async () => {
+      const today = getTodayVN();
+      await xsmbDrawRepository.create({
+        drawDate: today,
+        status: DRAW_STATUS.READY,
+        results: FIXTURE_VALID_RESULTS_1,
+      });
+
+      const diag = await service.getDiagnostic();
+      expect(diag.vietnamDate).toBe(today);
+      expect(diag.vietnamTime).toBeDefined();
+      expect(diag.drawSchedule.startTime).toBe('18:15');
+      expect(diag.drawSchedule.endTime).toBe('18:35');
+      expect(diag.database.connected).toBe(true);
+      expect(diag.database.todayRecord.exists).toBe(true);
+      expect(diag.database.todayRecord.isComplete).toBe(true);
+      expect(diag.database.todayRecord.prizeCount).toBe(27);
     });
   });
 

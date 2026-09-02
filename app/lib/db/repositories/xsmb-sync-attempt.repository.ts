@@ -40,6 +40,10 @@ export class XSMBSyncAttemptRepository {
       .lean<IXSMBSyncAttempt[]>();
   }
 
+  async findRecent(limit: number = 20): Promise<IXSMBSyncAttempt[]> {
+    return this.findRecentAttempts(limit);
+  }
+
   /**
    * Retrieves all attempts associated with a specific sync run.
    */

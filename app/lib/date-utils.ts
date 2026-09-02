@@ -3,11 +3,73 @@
  * All date logic operates in Asia/Ho_Chi_Minh (UTC+7) timezone.
  */
 
-export const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
+export const DRAW_CONFIG = {
+  timezone: 'Asia/Ho_Chi_Minh',
+  hour: 18,
+  minute: 15,
+  windowEndHour: 18,
+  windowEndMinute: 35,
+} as const;
+
+export const VN_TIMEZONE = DRAW_CONFIG.timezone;
+
+// Canonical Vietnam Date Formatter (Asia/Ho_Chi_Minh)
+const vnDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: VN_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Returns today's canonical Vietnam business date in YYYY-MM-DD format (Asia/Ho_Chi_Minh) */
+export function getVietnamBusinessDate(date: Date = new Date()): string {
+  return vnDateFormatter.format(date);
+}
 
 /** Returns current date as Date object in Vietnam local time representation */
 export function getNowVN(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: VN_TIMEZONE }));
+  const parts = getVNTimeParts();
+  return new Date(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+/** Extracts current time components in Asia/Ho_Chi_Minh */
+export function getVNTimeParts(date: Date = new Date()): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  totalMinutes: number;
+} {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: VN_TIMEZONE,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const map: Record<string, number> = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') {
+      map[p.type] = parseInt(p.value, 10);
+    }
+  }
+  const hour = (map.hour || 0) % 24;
+  const minute = map.minute || 0;
+  return {
+    year: map.year || date.getFullYear(),
+    month: map.month || (date.getMonth() + 1),
+    day: map.day || date.getDate(),
+    hour,
+    minute,
+    second: map.second || 0,
+    totalMinutes: hour * 60 + minute,
+  };
 }
 
 /** Formats a Date to YYYY-MM-DD string */
@@ -18,9 +80,30 @@ export function formatDateStr(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Returns today's date in YYYY-MM-DD format (Vietnam timezone) */
+/** Returns today's canonical business date in YYYY-MM-DD format (Asia/Ho_Chi_Minh) */
 export function getTodayVN(): string {
-  return formatDateStr(getNowVN());
+  return getVietnamBusinessDate();
+}
+
+/** Checks if current Vietnam time is at or after draw start time (18:15 VN) */
+export function isAfterDrawTime(nowVN?: Date): boolean {
+  const parts = nowVN ? getVNTimeParts(nowVN) : getVNTimeParts();
+  return parts.totalMinutes >= DRAW_CONFIG.hour * 60 + DRAW_CONFIG.minute;
+}
+
+/** Checks if current Vietnam time is within the live drawing window (18:15 – 18:35 VN) */
+export function isDrawWindow(nowVN?: Date): boolean {
+  const parts = nowVN ? getVNTimeParts(nowVN) : getVNTimeParts();
+  const startMinutes = DRAW_CONFIG.hour * 60 + DRAW_CONFIG.minute;
+  const endMinutes = DRAW_CONFIG.windowEndHour * 60 + DRAW_CONFIG.windowEndMinute;
+  return parts.totalMinutes >= startMinutes && parts.totalMinutes <= endMinutes;
+}
+
+/** Checks if current Vietnam time is strictly past the draw window (after 18:35 VN) */
+export function isPastDrawWindow(nowVN?: Date): boolean {
+  const parts = nowVN ? getVNTimeParts(nowVN) : getVNTimeParts();
+  const endMinutes = DRAW_CONFIG.windowEndHour * 60 + DRAW_CONFIG.windowEndMinute;
+  return parts.totalMinutes > endMinutes;
 }
 
 /** Parses YYYY-MM-DD to a local Date object (midnight, no timezone shift) */

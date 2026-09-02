@@ -15,8 +15,8 @@ export default function TodayResultSection({
   status,
   onInspectNumber,
 }: TodayResultSectionProps) {
-  // If there's no data and not in drawing/updating/completed, don't show the board
-  if (!prizes && status !== 'DRAWING' && status !== 'UPDATING' && status !== 'COMPLETED') {
+  // If there's no data and not in drawing/updating/syncing/completed, don't show the board
+  if (!prizes && status !== 'DRAWING' && status !== 'UPDATING' && status !== 'SYNCING' && status !== 'COMPLETED' && status !== 'RESULT_AVAILABLE') {
     return null;
   }
 

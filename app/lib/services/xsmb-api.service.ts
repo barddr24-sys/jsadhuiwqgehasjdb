@@ -15,6 +15,10 @@
  */
 
 import { xsmbDrawRepository, XSMBDrawRepository } from '../db/repositories/xsmb-draw.repository';
+import { xsmbSyncRunRepository, XSMBSyncRunRepository } from '../db/repositories/xsmb-sync-run.repository';
+import { xsmbSyncAttemptRepository, XSMBSyncAttemptRepository } from '../db/repositories/xsmb-sync-attempt.repository';
+import { xsmbSyncJob, XSMBSyncJob } from '../jobs/xsmb-sync.job';
+import { isDatabaseConnected } from '../db/connection';
 import {
   DRAW_STATUS,
   type DrawStatus,
@@ -30,7 +34,22 @@ import type {
   IXSMBDrawResults,
   IXSMBDrawSource,
 } from '../db/types/db-types';
-import { getTodayVN, addDays, toDDMMYYYYDash, getDayOfWeekVN } from '../date-utils';
+import {
+  getTodayVN,
+  getVietnamBusinessDate,
+  addDays,
+  toDDMMYYYYDash,
+  getDayOfWeekVN,
+  isAfterDrawTime,
+  isDrawWindow,
+  isPastDrawWindow,
+  getVNTimeParts,
+} from '../date-utils';
+import {
+  computeExplicitDrawStatus,
+  type ExplicitDrawState,
+} from '../draw-status';
+import type { XSMBPrizes } from '../xsmb-types';
 import { XSMBAPIError, type PaginationMeta } from '../api/api-response';
 import {
   validateDateParam,
@@ -44,6 +63,53 @@ import { xsmbSchedulerService, XSMBSchedulerService } from '../scheduler/xsmb-sc
 import { XSMBMemoryL1Cache } from '../cache/xsmb-l1-cache';
 
 // ─── Service Response Interfaces ─────────────────────────────────────────────
+
+export interface DiagnosticResponseDTO {
+  serverTime: string;
+  vietnamDate: string;
+  vietnamTime: string;
+  drawSchedule: {
+    startTime: string;
+    endTime: string;
+    isAfterDrawTime: boolean;
+    isDrawWindow: boolean;
+    isPastDrawWindow: boolean;
+    phase: string;
+  };
+  database: {
+    connected: boolean;
+    totalDraws: number;
+    todayRecord: {
+      exists: boolean;
+      status: string | null;
+      isComplete: boolean;
+      specialPrize: string | null;
+      prizeCount: number;
+      updatedAt: string | null;
+      fetchedAt: string | null;
+    };
+  };
+  lastSync: {
+    run: {
+      syncRunId?: string;
+      status?: string;
+      startedAt?: string;
+      finishedAt?: string;
+      recordsAccepted?: number;
+      recordsFetched?: number;
+      conflicts?: number;
+      error?: string;
+    } | null;
+    attempt: {
+      requestedDate?: string;
+      status?: string;
+      httpStatus?: number;
+      errorMessage?: string;
+      startedAt?: string;
+      finishedAt?: string;
+    } | null;
+  };
+}
 
 export interface TwoDigitItemDTO {
   number: string;
@@ -66,11 +132,15 @@ export interface TwoDigitTableResponseDTO {
 
 export interface DrawResponseDTO {
   date: string;
+  timezone?: string;
+  drawTime?: string;
   lotteryType: LotteryType | string;
   status: DrawStatus;
+  explicitStatus?: ExplicitDrawState;
   province: string;
   isComplete: boolean;
   results: IXSMBDrawResults;
+  result?: IXSMBDrawResults | null;
   source?: IXSMBDrawSource;
   updatedAt: string | null;
   fetchedAt: string | null;
@@ -304,7 +374,10 @@ function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export class XSMBAPIService {
   constructor(
     private readonly repository: XSMBDrawRepository = xsmbDrawRepository,
-    private readonly scheduler?: XSMBSchedulerService
+    private readonly scheduler?: XSMBSchedulerService,
+    private readonly syncJob: XSMBSyncJob = xsmbSyncJob,
+    private readonly syncRunRepo: XSMBSyncRunRepository = xsmbSyncRunRepository,
+    private readonly syncAttemptRepo: XSMBSyncAttemptRepository = xsmbSyncAttemptRepository
   ) {}
 
   /**
@@ -315,15 +388,16 @@ export class XSMBAPIService {
   }
 
   /**
-   * Retrieves the latest XSMB draw for the current Vietnam business date.
-   * Checks L1 cache -> MongoDB.
+   * Retrieves the XSMB draw for today's canonical Vietnam business date.
+   * If today's result is missing/incomplete after draw time (>= 18:15 VN),
+   * triggers a deduplicated on-demand synchronization.
    */
   async getTodayDraw(): Promise<DrawResponseDTO> {
     const startTime = Date.now();
-    const todayVN = getTodayVN();
+    const todayVN = getVietnamBusinessDate();
 
     const cachedToday = xsmbMemoryCache.get<DrawResponseDTO>(`draw:date:${todayVN}`);
-    if (cachedToday) {
+    if (cachedToday && cachedToday.isComplete) {
       return {
         ...cachedToday,
         sourceType: 'cache',
@@ -335,31 +409,93 @@ export class XSMBAPIService {
       const dbStart = Date.now();
       let doc = await this.repository.findByDate(todayVN);
 
-      if (!doc) {
-        // If today is not in DB yet, query the latest available draw
-        doc = await this.repository.findLatest();
+      // 1. If today's draw already exists in MongoDB and is completed (READY), return immediately
+      if (doc && doc.status === DRAW_STATUS.READY) {
+        const dto = this.formatDrawDTO(doc);
+        dto.sourceType = 'mongodb';
+        dto.durationMs = Date.now() - dbStart;
+        xsmbMemoryCache.set(`draw:date:${todayVN}`, dto, 300_000);
+        return dto;
       }
 
-      if (!doc) {
-        throw XSMBAPIError.notFound(
-          'XSMB_RESULT_NOT_FOUND',
-          'No XSMB result is available for today'
-        );
+      // 2. If existing record is CONFLICT, do not auto-overwrite without explicit flag
+      if (doc && doc.status === DRAW_STATUS.CONFLICT) {
+        const dto = this.formatDrawDTO(doc);
+        dto.sourceType = 'mongodb';
+        dto.durationMs = Date.now() - dbStart;
+        return dto;
       }
 
-      const dto = this.formatDrawDTO(doc);
-      dto.sourceType = 'mongodb';
-      dto.durationMs = Date.now() - dbStart;
+      // 3. If result is missing or PARTIAL, check if draw time has started or passed
+      const afterDraw = isAfterDrawTime();
+      if (afterDraw) {
+        try {
+          if (process.env.NODE_ENV !== 'test') {
+            console.log(`[getTodayDraw] Post-draw check for ${todayVN}: triggering deduplicated sync`);
+          }
+          await this.syncJob.execute(todayVN, { maxRetries: 2, lockTtlSec: 60 });
+          doc = await this.repository.findByDate(todayVN);
+        } catch (syncErr) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[getTodayDraw] On-demand sync attempt error:', syncErr);
+          }
+        }
+      }
 
-      // Cache by its actual drawDate (5 mins for complete, 10s for partial)
-      const ttl = dto.isComplete ? 300_000 : 10_000;
-      xsmbMemoryCache.set(`draw:date:${dto.date}`, dto, ttl);
+      // 4. If MongoDB now contains today's record (READY, PARTIAL, or SCHEDULED)
+      if (doc) {
+        const dto = this.formatDrawDTO(doc);
+        dto.sourceType = 'mongodb';
+        dto.durationMs = Date.now() - dbStart;
+        const ttl = dto.isComplete ? 300_000 : 10_000;
+        xsmbMemoryCache.set(`draw:date:${todayVN}`, dto, ttl);
+        return dto;
+      }
+
+      // 5. Document does not exist in MongoDB yet (pre-draw or external provider has not published yet)
+      const explicitStatus = computeExplicitDrawStatus(todayVN, null);
+      const pendingStatus: DrawStatus = isDrawWindow()
+        ? DRAW_STATUS.UPDATING
+        : (isPastDrawWindow() ? DRAW_STATUS.UPDATING : DRAW_STATUS.SCHEDULED);
+
+      const emptyResults: IXSMBDrawResults = {
+        special: [],
+        firstPrize: [],
+        secondPrize: [],
+        thirdPrize: [],
+        fourthPrize: [],
+        fifthPrize: [],
+        sixthPrize: [],
+        seventhPrize: [],
+      };
+
+      const pendingDTO: DrawResponseDTO = {
+        date: todayVN,
+        timezone: 'Asia/Ho_Chi_Minh',
+        drawTime: '18:15',
+        lotteryType: LOTTERY_TYPE.XSMB,
+        status: pendingStatus,
+        explicitStatus,
+        province: 'Miền Bắc',
+        isComplete: false,
+        results: emptyResults,
+        result: null,
+        updatedAt: null,
+        fetchedAt: null,
+        completedAt: null,
+        isStale: false,
+        sourceType: 'mongodb',
+        durationMs: Date.now() - dbStart,
+      };
+
+      const ttl = afterDraw ? 10_000 : 60_000;
+      xsmbMemoryCache.set(`draw:date:${todayVN}`, pendingDTO, ttl);
 
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`[PERF][getTodayDraw] MongoDB: ${dto.durationMs}ms, Total: ${Date.now() - startTime}ms`);
+        console.log(`[getTodayDraw] Returning pending state for ${todayVN} (status: ${pendingStatus}, explicit: ${explicitStatus})`);
       }
 
-      return dto;
+      return pendingDTO;
     });
   }
 
@@ -370,8 +506,9 @@ export class XSMBAPIService {
   async getDrawByDate(rawDate: string): Promise<DrawResponseDTO> {
     const startTime = Date.now();
     const date = validateDateParam(rawDate);
-    const cacheKey = `draw:date:${date}`;
+    const todayVN = getTodayVN();
 
+    const cacheKey = `draw:date:${date}`;
     const cached = xsmbMemoryCache.get<DrawResponseDTO>(cacheKey);
     if (cached) {
       return {
@@ -383,7 +520,17 @@ export class XSMBAPIService {
 
     return deduplicateRequest(cacheKey, async () => {
       const dbStart = Date.now();
-      const doc = await this.repository.findByDate(date);
+      let doc = await this.repository.findByDate(date);
+
+      // If requested date is today and not in MongoDB yet, check if sync is needed
+      if (!doc && date === todayVN && isAfterDrawTime()) {
+        try {
+          await this.syncJob.execute(todayVN, { maxRetries: 2, lockTtlSec: 30 });
+          doc = await this.repository.findByDate(todayVN);
+        } catch {
+          // Ignore
+        }
+      }
 
       if (!doc) {
         throw XSMBAPIError.notFound(
@@ -824,6 +971,99 @@ export class XSMBAPIService {
   }
 
   /**
+   * System diagnostic report for operations, incident triage, and monitoring.
+   * Safe for dev/admin inspection (no credentials/secrets exposed).
+   */
+  async getDiagnostic(): Promise<DiagnosticResponseDTO> {
+    const todayVN = getTodayVN();
+    const parts = getVNTimeParts();
+    const timeStr = `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`;
+    const totalDraws = await this.repository.count().catch(() => 0);
+    const todayDoc = await this.repository.findByDate(todayVN).catch(() => null);
+
+    let countPrizes = 0;
+    if (todayDoc?.results) {
+      for (const { key } of PRIZE_TIER_ORDER) {
+        countPrizes += (todayDoc.results[key] || []).length;
+      }
+    }
+
+    let lastRun: DiagnosticResponseDTO['lastSync']['run'] = null;
+    try {
+      const runs = await this.syncRunRepo.findRecent(1);
+      if (runs.length > 0) {
+        const r = runs[0];
+        lastRun = {
+          syncRunId: r.syncRunId,
+          status: r.status,
+          startedAt: r.startedAt ? new Date(r.startedAt).toISOString() : undefined,
+          finishedAt: r.finishedAt ? new Date(r.finishedAt).toISOString() : undefined,
+          recordsAccepted: r.recordsAccepted,
+          recordsFetched: r.recordsFetched,
+          conflicts: r.conflicts,
+          error: r.error,
+        };
+      }
+    } catch {
+      // Ignore
+    }
+
+    let lastAttempt: DiagnosticResponseDTO['lastSync']['attempt'] = null;
+    try {
+      const attempts = await this.syncAttemptRepo.findRecent(1);
+      if (attempts.length > 0) {
+        const a = attempts[0];
+        lastAttempt = {
+          requestedDate: a.requestedDate,
+          status: a.status,
+          httpStatus: a.httpStatus,
+          errorMessage: a.errorMessage,
+          startedAt: a.startedAt ? new Date(a.startedAt).toISOString() : undefined,
+          finishedAt: a.finishedAt ? new Date(a.finishedAt).toISOString() : undefined,
+        };
+      }
+    } catch {
+      // Ignore
+    }
+
+    const afterDraw = isAfterDrawTime();
+    const inWindow = isDrawWindow();
+    const pastWindow = isPastDrawWindow();
+    const phase = computeExplicitDrawStatus(todayVN, todayDoc?.status === DRAW_STATUS.READY ? (todayDoc.results as unknown as XSMBPrizes) : null);
+
+    return {
+      serverTime: new Date().toISOString(),
+      vietnamDate: todayVN,
+      vietnamTime: timeStr,
+      drawSchedule: {
+        startTime: '18:15',
+        endTime: '18:35',
+        isAfterDrawTime: afterDraw,
+        isDrawWindow: inWindow,
+        isPastDrawWindow: pastWindow,
+        phase,
+      },
+      database: {
+        connected: isDatabaseConnected(),
+        totalDraws,
+        todayRecord: {
+          exists: Boolean(todayDoc),
+          status: todayDoc?.status || null,
+          isComplete: todayDoc?.status === DRAW_STATUS.READY,
+          specialPrize: todayDoc?.results?.special?.[0] || null,
+          prizeCount: countPrizes,
+          updatedAt: todayDoc?.updatedAt ? new Date(todayDoc.updatedAt).toISOString() : null,
+          fetchedAt: todayDoc?.source?.fetchedAt ? new Date(todayDoc.source.fetchedAt).toISOString() : null,
+        },
+      },
+      lastSync: {
+        run: lastRun,
+        attempt: lastAttempt,
+      },
+    };
+  }
+
+  /**
    * Health check for API, MongoDB Atlas, and Scheduler.
    */
   async getHealth(): Promise<HealthResponseDTO> {
@@ -862,6 +1102,9 @@ export class XSMBAPIService {
   private formatDrawDTO(doc: IXSMBDraw): DrawResponseDTO {
     const isComplete = doc.status === DRAW_STATUS.READY;
     const isStale = computeIsStale(doc);
+    const explicitStatus: ExplicitDrawState = isComplete
+      ? 'RESULT_AVAILABLE'
+      : (doc.status === DRAW_STATUS.CONFLICT ? 'SOURCE_ERROR' : 'SYNCING');
 
     const emptyResults: IXSMBDrawResults = {
       special: [],
@@ -874,13 +1117,19 @@ export class XSMBAPIService {
       seventhPrize: [],
     };
 
+    const results = doc.results || emptyResults;
+
     return {
       date: doc.drawDate,
+      timezone: 'Asia/Ho_Chi_Minh',
+      drawTime: '18:15',
       lotteryType: doc.lotteryType || LOTTERY_TYPE.XSMB,
       status: doc.status,
+      explicitStatus,
       province: doc.province || 'Miền Bắc',
       isComplete,
-      results: doc.results || emptyResults,
+      results,
+      result: isComplete ? results : null,
       source: doc.source,
       updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
       fetchedAt: doc.source?.fetchedAt ? new Date(doc.source.fetchedAt).toISOString() : null,

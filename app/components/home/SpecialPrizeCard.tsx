@@ -14,8 +14,8 @@ export default function SpecialPrizeCard({
   status,
   onInspectNumber,
 }: SpecialPrizeCardProps) {
-  const isAvailable = Boolean(number) && status === 'COMPLETED';
-  const isDrawingOrUpdating = status === 'DRAWING' || status === 'UPDATING';
+  const isAvailable = Boolean(number) && (status === 'COMPLETED' || status === 'RESULT_AVAILABLE');
+  const isDrawingOrUpdating = status === 'DRAWING' || status === 'UPDATING' || status === 'SYNCING' || status === 'WAITING_FOR_RESULT' || status === 'DELAYED';
 
   function handleCardClick() {
     if (number && onInspectNumber) {
