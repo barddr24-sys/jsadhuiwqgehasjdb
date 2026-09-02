@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/internal/xsmb/sync",
+      "schedule": "15,20,25,30 11 * * *"
+    }
+  ],
+  "functions": {
+    "app/api/**/*": {
+      "maxDuration": 60
+    }
+  }
+}
