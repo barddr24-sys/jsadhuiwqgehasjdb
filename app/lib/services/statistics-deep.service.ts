@@ -109,6 +109,10 @@ export interface StreakNumberStat {
   lastAppearance: string | null;
 }
 
+interface Test {
+
+}
+
 export interface PairStat {
   pair: [string, string]; // [num1, num2] sorted
   pairLabel: string;      // "27 – 72"
