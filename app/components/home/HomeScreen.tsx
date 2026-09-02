@@ -23,7 +23,12 @@ import type {
 } from '@/app/lib/xsmb-types';
 import { getTodayVN, isToday, getDayOfWeekVN } from '@/app/lib/date-utils';
 import { getPrizeMilestones } from '@/app/lib/draw-status';
-import type { DrawResponseDTO, StatisticsResponseDTO, HistorySummaryItemDTO } from '@/app/lib/services/xsmb-api.service';
+import type {
+  DrawResponseDTO,
+  StatisticsResponseDTO,
+  HistorySummaryItemDTO,
+  InitialHomeDataDTO,
+} from '@/app/lib/services/xsmb-api.service';
 
 import DateSelector from './DateSelector';
 import DrawStatusCard from './DrawStatusCard';
@@ -109,24 +114,49 @@ function mapHistory(items: HistorySummaryItemDTO[]): RecentResultSummary[] {
   });
 }
 
+function formatUpdatedAtTime(isoStr?: string | null): string {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function HomeScreen() {
+export interface HomeScreenProps {
+  initialData?: InitialHomeDataDTO | null;
+}
+
+export default function HomeScreen({ initialData }: HomeScreenProps) {
   const router = useRouter();
-  const [selectedDate, setSelectedDate] = useState<string>(getTodayVN());
+  const defaultDate = initialData?.todayDate || getTodayVN();
+  const [selectedDate, setSelectedDate] = useState<string>(defaultDate);
   const [activeTab, setActiveTab] = useState<NavTabId>('home');
 
+  // Derive initial values from server-rendered initialData if available
+  const initialPrizes = initialData?.today ? mapResultsToPrizes(initialData.today) : null;
+  const initialStatus = initialData?.today
+    ? mapDrawStatus(initialData.today.status, defaultDate)
+    : 'SCHEDULED';
+
   // Live status from real API
-  const [currentStatus, setCurrentStatus] = useState<DrawLifecycleState>('SCHEDULED');
-  const [isLoading, setIsLoading] = useState(true);
+  const [currentStatus, setCurrentStatus] = useState<DrawLifecycleState>(initialStatus);
+  const [isLoading, setIsLoading] = useState(!initialData);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Real data — no fixture defaults
-  const [prizes, setPrizes] = useState<XSMBPrizes | null>(null);
-  const [specialNum, setSpecialNum] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<string>('—');
-  const [stats7Day, setStats7Day] = useState<StatPreviewItem[]>([]);
-  const [recentResults, setRecentResults] = useState<RecentResultSummary[]>([]);
+  // Real data — initialized immediately if pre-fetched on server
+  const [prizes, setPrizes] = useState<XSMBPrizes | null>(initialPrizes);
+  const [specialNum, setSpecialNum] = useState<string | null>(initialPrizes?.dacBiet?.[0] ?? null);
+  const [updatedAt, setUpdatedAt] = useState<string>(formatUpdatedAtTime(initialData?.today?.updatedAt));
+  const [stats7Day, setStats7Day] = useState<StatPreviewItem[]>(initialData?.stats7Day || []);
+  const [recentResults, setRecentResults] = useState<RecentResultSummary[]>(initialData?.recentResults || []);
 
   // Dev-only state switcher (does not affect production data)
   const [simulatedState, setSimulatedState] = useState<DrawLifecycleState | null>(null);
@@ -142,9 +172,6 @@ export default function HomeScreen() {
 
   // ─── Fetch draw result from v1 API ────────────────────────────────────────
   const fetchDraw = useCallback(async (date: string, signal: AbortSignal) => {
-    setIsLoading(true);
-    setFetchError(null);
-
     try {
       const endpoint = isToday(date)
         ? '/api/v1/xsmb/today'
@@ -162,6 +189,7 @@ export default function HomeScreen() {
           setSpecialNum(null);
           setUpdatedAt('—');
           setCurrentStatus(isToday(date) ? 'SCHEDULED' : 'EMPTY');
+          setFetchError(null);
           return;
         }
         throw new Error(`API returned ${res.status}`);
@@ -176,23 +204,8 @@ export default function HomeScreen() {
       setPrizes(mappedPrizes);
       setSpecialNum(mappedPrizes?.dacBiet?.[0] ?? null);
       setCurrentStatus(mappedStatus);
-
-      // Format updatedAt for display
-      if (dto.updatedAt) {
-        try {
-          const d = new Date(dto.updatedAt);
-          const hhmm = d.toLocaleTimeString('vi-VN', {
-            timeZone: 'Asia/Ho_Chi_Minh',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          setUpdatedAt(hhmm);
-        } catch {
-          setUpdatedAt('—');
-        }
-      } else {
-        setUpdatedAt('—');
-      }
+      setUpdatedAt(formatUpdatedAtTime(dto.updatedAt));
+      setFetchError(null);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
       console.error('[HomeScreen] Draw fetch failed:', err instanceof Error ? err.message : err);
@@ -239,27 +252,36 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ─── Initial data load ────────────────────────────────────────────────────
+  // ─── Initial data load & date changes ─────────────────────────────────────
   useEffect(() => {
     const controller = new AbortController();
-    fetchDraw(selectedDate, controller.signal);
-    // Stats and history only need to load on initial mount
-    if (selectedDate === getTodayVN()) {
+
+    // If we have initial data from server for today, don't refetch on initial mount
+    const hasInitialForDate = initialData && selectedDate === initialData.todayDate && initialData.today;
+    if (!hasInitialForDate) {
+      fetchDraw(selectedDate, controller.signal);
+    }
+
+    // Load secondary stats if not preloaded
+    if (stats7Day.length === 0) {
       fetchStats(controller.signal);
+    }
+    if (recentResults.length === 0) {
       fetchHistory(controller.signal);
     }
+
     return () => controller.abort();
-  }, [selectedDate, fetchDraw, fetchStats, fetchHistory]);
+  }, [selectedDate, initialData, fetchDraw, fetchStats, fetchHistory, stats7Day.length, recentResults.length]);
 
   // ─── Auto-refresh during draw time (18:15 – 18:35 VN) ────────────────────
   useEffect(() => {
     if (!isToday(selectedDate)) return;
-    if (currentStatus !== 'UPDATING' && currentStatus !== 'SCHEDULED' && currentStatus !== 'DRAWING') return;
+    if (currentStatus !== 'UPDATING' && currentStatus !== 'DRAWING') return;
 
     const interval = setInterval(() => {
       const controller = new AbortController();
       fetchDraw(selectedDate, controller.signal);
-    }, 20_000); // poll every 20s during active draw
+    }, 15_000); // 15s lightweight polling during active draw
 
     return () => clearInterval(interval);
   }, [selectedDate, currentStatus, fetchDraw]);
@@ -282,6 +304,7 @@ export default function HomeScreen() {
 
   // ─── Date navigation ──────────────────────────────────────────────────────
   const handleDateChange = (newDate: string) => {
+    setIsLoading(true);
     startTransition(() => {
       setSelectedDate(newDate);
       setSimulatedState(null); // clear dev override on date change

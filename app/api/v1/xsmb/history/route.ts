@@ -14,8 +14,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const page = searchParams.get('page');
     const pageSize = searchParams.get('pageSize');
+    const includeResults = searchParams.get('includeResults');
 
-    const { items, pagination } = await xsmbAPIService.getHistory(page, pageSize);
+    const { items, pagination } = await xsmbAPIService.getHistory(page, pageSize, includeResults);
 
     return apiPaginated(items, pagination, 200, {
       'Cache-Control': 'public, max-age=60, stale-while-revalidate=120',

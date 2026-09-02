@@ -84,7 +84,7 @@ export function calculateLotoData(
       drawsToUse = [customDraws[0]];
     } else if (customPrizes) {
       const today = getTodayVN();
-      const [year, month, day] = today.split('-');
+      const [, month, day] = today.split('-');
       drawsToUse = [
         {
           date: today,

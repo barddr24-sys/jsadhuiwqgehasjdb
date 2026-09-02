@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  StatisticsDeepService,
   extractAll2DigitsFromDraw,
   extractSpecialTailFromDraw,
   calculateTrend,

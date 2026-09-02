@@ -12,7 +12,6 @@ interface DrawStatusCardProps {
 
 export default function DrawStatusCard({
   status,
-  updatedAt,
   milestones,
   onCountdownComplete,
 }: DrawStatusCardProps) {
@@ -156,10 +155,10 @@ export default function DrawStatusCard({
       { key: 'giaiBay', label: 'Giải 7', isComplete: true, count: 4 },
       { key: 'giaiSau', label: 'Giải 6', isComplete: true, count: 3 },
       { key: 'giaiNam', label: 'Giải 5', isComplete: true, count: 6 },
-      { key: 'giaiTu',  label: 'Giải 4', isComplete: false, count: 2 },
-      { key: 'giaiBa',  label: 'Giải 3', isComplete: false, count: 0 },
+      { key: 'giaiTu', label: 'Giải 4', isComplete: false, count: 2 },
+      { key: 'giaiBa', label: 'Giải 3', isComplete: false, count: 0 },
       { key: 'giaiNhi', label: 'Giải 2', isComplete: false, count: 0 },
-      { key: 'giaiNhat',label: 'Giải 1', isComplete: false, count: 0 },
+      { key: 'giaiNhat', label: 'Giải 1', isComplete: false, count: 0 },
       { key: 'dacBiet', label: 'Đặc biệt', isComplete: false, count: 0 },
     ];
 
@@ -249,75 +248,7 @@ export default function DrawStatusCard({
 
   // ─── STATE 4: COMPLETED ──────────────────────────────────────────────────
   if (status === 'COMPLETED') {
-    return (
-      <section
-        aria-label="Kết quả đã cập nhật"
-        style={{
-          margin: '0 16px 16px',
-          padding: '14px 18px',
-          borderRadius: 14,
-          backgroundColor: 'var(--surface)',
-          border: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: 'var(--status-completed-text)',
-              flexShrink: 0,
-            }}
-          />
-          <div>
-            <h2
-              style={{
-                fontSize: 13,
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                color: 'var(--text-primary)',
-                margin: 0,
-                lineHeight: 1.2,
-                textTransform: 'uppercase',
-              }}
-            >
-              KẾT QUẢ ĐÃ CẬP NHẬT
-            </h2>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: 'var(--text-secondary)',
-                display: 'block',
-                marginTop: 2,
-              }}
-            >
-              Cập nhật lần cuối: {updatedAt || '18:27'}
-            </span>
-          </div>
-        </div>
-
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 800,
-            color: 'var(--status-completed-text)',
-            backgroundColor: 'var(--status-completed-bg)',
-            border: '1px solid var(--status-completed-border)',
-            padding: '3px 8px',
-            borderRadius: 20,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Đã có kết quả
-        </span>
-      </section>
-    );
+    return;
   }
 
   // ─── STATE 5: DELAYED / ERROR ────────────────────────────────────────────

@@ -119,14 +119,14 @@ export default function ComparisonModeModal({
         <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border)] text-xs">
           <div className="flex items-center gap-1">
             {[
-              { key: 'all', label: 'Tất cả 100 số' },
-              { key: 'rising', label: '🔥 Đang bứt phá (Tăng hạng)' },
-              { key: 'falling', label: '❄️ Đang chững (Giảm hạng)' },
+              { key: 'all' as const, label: 'Tất cả 100 số' },
+              { key: 'rising' as const, label: '🔥 Đang bứt phá (Tăng hạng)' },
+              { key: 'falling' as const, label: '❄️ Đang chững (Giảm hạng)' },
             ].map((f) => (
               <button
                 key={f.key}
                 type="button"
-                onClick={() => setFilterStatus(f.key as any)}
+                onClick={() => setFilterStatus(f.key)}
                 className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer ${
                   filterStatus === f.key
                     ? 'bg-[var(--text-primary)] text-[var(--canvas)]'

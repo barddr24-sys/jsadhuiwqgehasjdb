@@ -18,7 +18,6 @@ import {
   addDays,
   toDDMMYYYYDash,
   isValidDateStr,
-  VN_TIMEZONE,
   parseDateStr,
 } from '../date-utils';
 
@@ -224,7 +223,7 @@ export class StatisticsDateRangeService {
     }
 
     const [endYear, endMonth, endDay] = endDate.split('-');
-    const [startYear, startMonth, startDay] = startDate.split('-');
+    const [, startMonth, startDay] = startDate.split('-');
 
     const dateRangeDisplay = daysCount === 1
       ? `${endDay}/${endMonth}/${endYear}`

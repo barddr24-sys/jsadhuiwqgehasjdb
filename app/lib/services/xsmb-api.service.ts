@@ -30,7 +30,7 @@ import type {
   IXSMBDrawResults,
   IXSMBDrawSource,
 } from '../db/types/db-types';
-import { getTodayVN, addDays, toDDMMYYYYDash } from '../date-utils';
+import { getTodayVN, addDays, toDDMMYYYYDash, getDayOfWeekVN } from '../date-utils';
 import { XSMBAPIError, type PaginationMeta } from '../api/api-response';
 import {
   validateDateParam,
@@ -41,6 +41,7 @@ import {
   type TwoDigitRangeParam,
 } from '../api/validators';
 import { xsmbSchedulerService, XSMBSchedulerService } from '../scheduler/xsmb-scheduler.service';
+import { XSMBMemoryL1Cache } from '../cache/xsmb-l1-cache';
 
 // ─── Service Response Interfaces ─────────────────────────────────────────────
 
@@ -75,6 +76,8 @@ export interface DrawResponseDTO {
   fetchedAt: string | null;
   completedAt: string | null;
   isStale: boolean;
+  sourceType?: 'mongodb' | 'cache' | 'in-memory';
+  durationMs?: number;
 }
 
 export interface HistorySummaryItemDTO {
@@ -84,8 +87,35 @@ export interface HistorySummaryItemDTO {
   special: string[];
   firstPrize: string[];
   secondPrize: string[];
+  thirdPrize?: string[];
+  fourthPrize?: string[];
+  fifthPrize?: string[];
+  sixthPrize?: string[];
+  seventhPrize?: string[];
+  results?: IXSMBDrawResults;
   completedAt?: string;
   updatedAt?: string;
+}
+
+export interface InitialHomeDataDTO {
+  today: DrawResponseDTO | null;
+  todayDate: string;
+  stats7Day: StatPreviewItem[];
+  recentResults: RecentResultSummary[];
+}
+
+export interface StatPreviewItem {
+  number: string;
+  count: number;
+}
+
+export interface RecentResultSummary {
+  date: string;
+  dayOfWeek: string;
+  displayDate: string;
+  shortDate: string;
+  specialPrize: string;
+  twoDigit: string;
 }
 
 export interface StatisticsNumberItemDTO {
@@ -245,6 +275,30 @@ export function findMatchingPrizes(
   return extracted;
 }
 
+// ─── L1 In-Memory Cache & Singleflight Request Deduplication ─────────────────
+
+export const xsmbMemoryCache = new XSMBMemoryL1Cache();
+
+export function clearXSMBCache(): void {
+  xsmbMemoryCache.clear();
+}
+
+// In-flight promise deduplication map
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+
+  const promise = fn().finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, promise);
+  return promise;
+}
+
 // ─── Application Service Class ───────────────────────────────────────────────
 
 export class XSMBAPIService {
@@ -254,81 +308,219 @@ export class XSMBAPIService {
   ) {}
 
   /**
+   * Clears in-memory L1 cache
+   */
+  clearCache(): void {
+    xsmbMemoryCache.clear();
+  }
+
+  /**
    * Retrieves the latest XSMB draw for the current Vietnam business date.
+   * Checks L1 cache -> MongoDB.
    */
   async getTodayDraw(): Promise<DrawResponseDTO> {
+    const startTime = Date.now();
     const todayVN = getTodayVN();
-    let doc = await this.repository.findByDate(todayVN);
 
-    if (!doc) {
-      // If today is not in DB yet, query the latest available draw
-      doc = await this.repository.findLatest();
+    const cachedToday = xsmbMemoryCache.get<DrawResponseDTO>(`draw:date:${todayVN}`);
+    if (cachedToday) {
+      return {
+        ...cachedToday,
+        sourceType: 'cache',
+        durationMs: Date.now() - startTime,
+      };
     }
 
-    if (!doc) {
-      throw XSMBAPIError.notFound(
-        'XSMB_RESULT_NOT_FOUND',
-        'No XSMB result is available for today'
-      );
-    }
+    return deduplicateRequest(`draw:today:${todayVN}`, async () => {
+      const dbStart = Date.now();
+      let doc = await this.repository.findByDate(todayVN);
 
-    return this.formatDrawDTO(doc);
+      if (!doc) {
+        // If today is not in DB yet, query the latest available draw
+        doc = await this.repository.findLatest();
+      }
+
+      if (!doc) {
+        throw XSMBAPIError.notFound(
+          'XSMB_RESULT_NOT_FOUND',
+          'No XSMB result is available for today'
+        );
+      }
+
+      const dto = this.formatDrawDTO(doc);
+      dto.sourceType = 'mongodb';
+      dto.durationMs = Date.now() - dbStart;
+
+      // Cache by its actual drawDate (5 mins for complete, 10s for partial)
+      const ttl = dto.isComplete ? 300_000 : 10_000;
+      xsmbMemoryCache.set(`draw:date:${dto.date}`, dto, ttl);
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PERF][getTodayDraw] MongoDB: ${dto.durationMs}ms, Total: ${Date.now() - startTime}ms`);
+      }
+
+      return dto;
+    });
   }
 
   /**
    * Retrieves XSMB draw result by specific date (YYYY-MM-DD).
+   * Checks L1 cache -> MongoDB.
    */
   async getDrawByDate(rawDate: string): Promise<DrawResponseDTO> {
+    const startTime = Date.now();
     const date = validateDateParam(rawDate);
-    const doc = await this.repository.findByDate(date);
+    const cacheKey = `draw:date:${date}`;
 
-    if (!doc) {
-      throw XSMBAPIError.notFound(
-        'XSMB_RESULT_NOT_FOUND',
-        'No XSMB result is available for this date'
-      );
+    const cached = xsmbMemoryCache.get<DrawResponseDTO>(cacheKey);
+    if (cached) {
+      return {
+        ...cached,
+        sourceType: 'cache',
+        durationMs: Date.now() - startTime,
+      };
     }
 
-    return this.formatDrawDTO(doc);
+    return deduplicateRequest(cacheKey, async () => {
+      const dbStart = Date.now();
+      const doc = await this.repository.findByDate(date);
+
+      if (!doc) {
+        throw XSMBAPIError.notFound(
+          'XSMB_RESULT_NOT_FOUND',
+          'No XSMB result is available for this date'
+        );
+      }
+
+      const dto = this.formatDrawDTO(doc);
+      dto.sourceType = 'mongodb';
+      dto.durationMs = Date.now() - dbStart;
+
+      // Cache completed historical draws longer (1 hour)
+      const ttl = dto.isComplete ? 3_600_000 : 15_000;
+      xsmbMemoryCache.set(cacheKey, dto, ttl);
+
+      return dto;
+    });
   }
 
   /**
    * Retrieves historical completed draws with pagination.
+   * Supports `includeResults` to return full prize tiers in a single query.
    */
   async getHistory(
     pageStr?: string | null,
-    pageSizeStr?: string | null
+    pageSizeStr?: string | null,
+    includeResultsStr?: string | boolean | null
   ): Promise<{ items: HistorySummaryItemDTO[]; pagination: PaginationMeta }> {
     const { page, pageSize } = validatePaginationParams(pageStr, pageSizeStr);
+    const includeResults =
+      includeResultsStr === true ||
+      includeResultsStr === 'true' ||
+      includeResultsStr === '1';
+
     const offset = (page - 1) * pageSize;
+    const cacheKey = `history:${page}:${pageSize}:${includeResults ? 'full' : 'summary'}`;
 
-    const result = await this.repository.findHistory(pageSize, offset, {
-      status: DRAW_STATUS.READY,
+    const cached = xsmbMemoryCache.get<{ items: HistorySummaryItemDTO[]; pagination: PaginationMeta }>(cacheKey);
+    if (cached) return cached;
+
+    return deduplicateRequest(cacheKey, async () => {
+      const result = await this.repository.findHistory(pageSize, offset, {
+        status: DRAW_STATUS.READY,
+      });
+
+      const totalPages = result.total > 0 ? Math.ceil(result.total / pageSize) : 0;
+
+      const items: HistorySummaryItemDTO[] = result.items.map((doc) => {
+        const item: HistorySummaryItemDTO = {
+          date: doc.drawDate,
+          status: doc.status,
+          province: doc.province || 'Miền Bắc',
+          special: doc.results?.special || [],
+          firstPrize: doc.results?.firstPrize || [],
+          secondPrize: doc.results?.secondPrize || [],
+          completedAt: doc.completedAt ? new Date(doc.completedAt).toISOString() : undefined,
+          updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : undefined,
+        };
+
+        if (includeResults && doc.results) {
+          item.thirdPrize = doc.results.thirdPrize || [];
+          item.fourthPrize = doc.results.fourthPrize || [];
+          item.fifthPrize = doc.results.fifthPrize || [];
+          item.sixthPrize = doc.results.sixthPrize || [];
+          item.seventhPrize = doc.results.seventhPrize || [];
+          item.results = doc.results;
+        }
+
+        return item;
+      });
+
+      const pagination: PaginationMeta = {
+        page,
+        pageSize,
+        total: result.total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      };
+
+      const payload = { items, pagination };
+      xsmbMemoryCache.set(cacheKey, payload, 60_000); // 1 min cache
+      return payload;
     });
+  }
 
-    const totalPages = result.total > 0 ? Math.ceil(result.total / pageSize) : 0;
+  /**
+   * Retrieves pre-aggregated initial data for HomeScreen in Server Components.
+   * Runs queries in parallel directly on MongoDB without client-side waterfall delays.
+   */
+  async getInitialHomeData(): Promise<InitialHomeDataDTO> {
+    const todayVN = getTodayVN();
+    const startTime = Date.now();
 
-    const items: HistorySummaryItemDTO[] = result.items.map((doc) => ({
-      date: doc.drawDate,
-      status: doc.status,
-      province: doc.province || 'Miền Bắc',
-      special: doc.results?.special || [],
-      firstPrize: doc.results?.firstPrize || [],
-      secondPrize: doc.results?.secondPrize || [],
-      completedAt: doc.completedAt ? new Date(doc.completedAt).toISOString() : undefined,
-      updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : undefined,
-    }));
+    const [todayRes, statsRes, historyRes] = await Promise.allSettled([
+      this.getTodayDraw(),
+      this.getStatistics('7'),
+      this.getHistory('1', '5'),
+    ]);
 
-    const pagination: PaginationMeta = {
-      page,
-      pageSize,
-      total: result.total,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPrevPage: page > 1,
+    const today = todayRes.status === 'fulfilled' ? todayRes.value : null;
+
+    let stats7Day: StatPreviewItem[] = [];
+    if (statsRes.status === 'fulfilled' && statsRes.value) {
+      stats7Day = (statsRes.value.topNumbers || []).slice(0, 8).map((item) => ({
+        number: item.number,
+        count: item.count,
+      }));
+    }
+
+    let recentResults: RecentResultSummary[] = [];
+    if (historyRes.status === 'fulfilled' && historyRes.value?.items) {
+      recentResults = historyRes.value.items.map((item) => {
+        const dayOfWeek = getDayOfWeekVN(item.date);
+        const [year, month, day] = item.date.split('-');
+        return {
+          date: item.date,
+          dayOfWeek,
+          displayDate: `${day}/${month}/${year}`,
+          shortDate: `${day}/${month}`,
+          specialPrize: item.special?.[0] || '—',
+          twoDigit: item.special?.[0]?.slice(-2) || '—',
+        };
+      });
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[PERF][getInitialHomeData] Parallel query completed in ${Date.now() - startTime}ms`);
+    }
+
+    return {
+      today,
+      todayDate: todayVN,
+      stats7Day,
+      recentResults,
     };
-
-    return { items, pagination };
   }
 
   /**

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import GlobalDateSelector from './GlobalDateSelector';
@@ -16,6 +16,14 @@ import NumberSearchModal from './NumberSearchModal';
 import ComparisonModeModal from './ComparisonModeModal';
 import { StatisticsSkeleton, StatisticsEmptyState, StatisticsErrorState } from './StatisticsStates';
 import MobileBottomNavigation, { NavTabId } from '@/app/components/navigation/MobileBottomNavigation';
+
+import type {
+  StatisticsOverviewDTO,
+  StatisticsLotoTableDTO,
+  StatisticsGanDTO,
+  StatisticsPairsDTO,
+  StatisticsSpecialPrizeDTO,
+} from '@/app/lib/services/statistics-deep.service';
 
 interface StatisticsScreenProps {
   onNavigateHome?: () => void;
@@ -36,39 +44,42 @@ export default function StatisticsScreen({ onNavigateHome }: StatisticsScreenPro
 
   // Tab Data Cache in component state
   const [tabData, setTabData] = useState<{
-    overview?: any;
-    loto?: any;
-    gan?: any;
-    pairs?: any;
-    special?: any;
+    overview?: StatisticsOverviewDTO;
+    loto?: StatisticsLotoTableDTO;
+    gan?: StatisticsGanDTO;
+    pairs?: StatisticsPairsDTO;
+    special?: StatisticsSpecialPrizeDTO;
   }>({});
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch data progressively per active tab
-  const fetchTabData = useCallback(
-    async (tab: StatisticsTabKey, range: string, signal?: AbortSignal) => {
+  // Reload when range or tab changes
+  useEffect(() => {
+    let ignore = false;
+    const controller = new AbortController();
+
+    async function loadData() {
       setLoading(true);
       setError(null);
 
       try {
         let endpoint = '';
-        if (tab === 'overview') {
-          endpoint = `/api/v1/xsmb/statistics/overview?range=${range}`;
-        } else if (tab === 'loto' || tab === 'frequency' || tab === 'trend') {
-          endpoint = `/api/v1/xsmb/statistics/loto?range=${range}`;
-        } else if (tab === 'gan') {
-          endpoint = `/api/v1/xsmb/statistics/gan?range=${range}`;
-        } else if (tab === 'pairs') {
-          endpoint = `/api/v1/xsmb/statistics/pairs?range=${range}`;
-        } else if (tab === 'special') {
-          endpoint = `/api/v1/xsmb/statistics/special-last-two?range=${range}`;
+        if (activeTab === 'overview') {
+          endpoint = `/api/v1/xsmb/statistics/overview?range=${selectedRange}`;
+        } else if (activeTab === 'loto' || activeTab === 'frequency' || activeTab === 'trend') {
+          endpoint = `/api/v1/xsmb/statistics/loto?range=${selectedRange}`;
+        } else if (activeTab === 'gan') {
+          endpoint = `/api/v1/xsmb/statistics/gan?range=${selectedRange}`;
+        } else if (activeTab === 'pairs') {
+          endpoint = `/api/v1/xsmb/statistics/pairs?range=${selectedRange}`;
+        } else if (activeTab === 'special') {
+          endpoint = `/api/v1/xsmb/statistics/special-last-two?range=${selectedRange}`;
         }
 
         const res = await fetch(endpoint, {
           cache: 'no-store',
-          signal,
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -78,27 +89,32 @@ export default function StatisticsScreen({ onNavigateHome }: StatisticsScreenPro
         const json = await res.json();
         const data = json.data;
 
-        setTabData((prev) => ({
-          ...prev,
-          [tab === 'frequency' || tab === 'trend' ? 'loto' : tab]: data,
-        }));
+        if (!ignore) {
+          setTabData((prev) => ({
+            ...prev,
+            [activeTab === 'frequency' || activeTab === 'trend' ? 'loto' : activeTab]: data,
+          }));
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') return;
         console.error('[StatisticsScreen] fetch error:', err);
-        setError('Không thể tải dữ liệu thống kê. Vui lòng thử lại.');
+        if (!ignore) {
+          setError('Không thể tải dữ liệu thống kê. Vui lòng thử lại.');
+        }
       } finally {
-        setLoading(false);
+        if (!ignore) {
+          setLoading(false);
+        }
       }
-    },
-    []
-  );
+    }
 
-  // Reload when range or tab changes
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchTabData(activeTab, selectedRange, controller.signal);
-    return () => controller.abort();
-  }, [activeTab, selectedRange, fetchTabData]);
+    loadData();
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [activeTab, selectedRange]);
 
   // Handlers
   const handleRangeChange = (newRange: string) => {
@@ -169,9 +185,9 @@ export default function StatisticsScreen({ onNavigateHome }: StatisticsScreenPro
         {loading && !currentLoadedData ? (
           <StatisticsSkeleton />
         ) : error && !currentLoadedData ? (
-          <StatisticsErrorState onRetry={() => fetchTabData(activeTab, selectedRange)} />
+          <StatisticsErrorState onRetry={() => setTabData({})} />
         ) : !currentLoadedData ? (
-          <StatisticsEmptyState onRetry={() => fetchTabData(activeTab, selectedRange)} />
+          <StatisticsEmptyState onRetry={() => setTabData({})} />
         ) : (
           <div className="animate-fadeIn">
             {/* TAB 1: TỔNG QUAN */}

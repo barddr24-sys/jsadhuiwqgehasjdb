@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useTransition, useRef, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getTodayVN, getDayOfWeekVN } from '@/app/lib/date-utils';
 import type { HistoryUiState } from './HistoryStateSwitcherModal';
@@ -51,7 +51,6 @@ export default function HistoryScreen({ initialDate }: HistoryScreenProps) {
 
   // Fetch real history list from API
   const fetchHistoryList = useCallback(async (size: number, signal?: AbortSignal) => {
-    if (size === 10) setUiState('loading');
     try {
       const res = await fetch(`/api/v1/xsmb/history?page=1&pageSize=${size}`, {
         cache: 'no-store',

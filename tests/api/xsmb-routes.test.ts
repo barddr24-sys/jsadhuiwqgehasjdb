@@ -34,6 +34,7 @@ import { GET as getNumberRoute } from '../../app/api/v1/xsmb/number/[number]/rou
 import { GET as getStatusRoute } from '../../app/api/v1/xsmb/status/route';
 import { GET as getHealthRoute } from '../../app/api/v1/xsmb/health/route';
 import type { IXSMBDrawResults } from '../../app/lib/db/types/db-types';
+import { clearXSMBCache } from '../../app/lib/services/xsmb-api.service';
 
 let mongoServer: MongoMemoryServer;
 
@@ -59,6 +60,7 @@ describe('XSMB REST API Route Handlers (/api/v1/xsmb)', () => {
 
   beforeEach(async () => {
     await XSMBDrawModel.deleteMany({});
+    clearXSMBCache(); // clear L1 cache between tests to prevent pollution
   });
 
   describe('GET /api/v1/xsmb/today', () => {

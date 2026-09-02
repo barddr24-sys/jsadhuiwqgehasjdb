@@ -12,7 +12,6 @@ interface SpecialPrizeCardProps {
 export default function SpecialPrizeCard({
   number,
   status,
-  onCopy,
   onInspectNumber,
 }: SpecialPrizeCardProps) {
   const isAvailable = Boolean(number) && status === 'COMPLETED';
@@ -21,13 +20,6 @@ export default function SpecialPrizeCard({
   function handleCardClick() {
     if (number && onInspectNumber) {
       onInspectNumber(number);
-    }
-  }
-
-  function handleCopyClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (number) {
-      onCopy(number);
     }
   }
 

@@ -8,7 +8,7 @@
 
 import type { XSMBPrizes, DrawLifecycleState } from '@/app/lib/xsmb-types';
 import { SAMPLE_PARTIAL_PRIZES } from '@/app/lib/xsmb-types';
-import { MOCK_7DAY_DRAWS, type HistoricalDrawRecord } from '@/app/lib/statistics-engine';
+import type { HistoricalDrawRecord } from '@/app/lib/statistics-engine';
 import {
   formatDisplayDate,
   getDayOfWeekVN,

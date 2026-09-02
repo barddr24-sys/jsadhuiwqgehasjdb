@@ -10,7 +10,6 @@ import {
   StatisticsDateRangeService,
   type DateRangeConfig,
   type DataCompletenessEvaluation,
-  type StatisticsRangeKey,
 } from './statistics-date-range.service';
 import { StatisticsCacheService } from './statistics-cache.service';
 import { getDayOfWeekVN, toDDMMYYYYDash } from '../date-utils';
@@ -107,10 +106,6 @@ export interface StreakNumberStat {
   streak3Count: number; // times appeared 3 consecutive draws
   streak4PlusCount: number;
   lastAppearance: string | null;
-}
-
-interface Test {
-
 }
 
 export interface PairStat {
@@ -238,6 +233,42 @@ export interface StatisticsOverviewDTO {
   lowHigh: LowHighAnalysis;
   dailyBreakdown: DailyTimeSeriesItem[];
 }
+
+export interface StatisticsLotoTableDTO {
+  range: DateRangeConfig;
+  completeness: DataCompletenessEvaluation;
+  drawCount: number;
+  totalOccurrences: number;
+  uniqueNumbersCount: number;
+  allNumbers: LotoNumberStat[];
+  hotNumbers: LotoNumberStat[];
+  coldNumbers: LotoNumberStat[];
+  ganRanking: GanNumberStat[];
+  streaks: StreakNumberStat[];
+  intervals: NumberIntervalStat[];
+  headTail: HeadTailAnalysis;
+  parity: ParityAnalysis;
+  lowHigh: LowHighAnalysis;
+}
+
+export interface StatisticsGanDTO {
+  range: DateRangeConfig;
+  completeness: DataCompletenessEvaluation;
+  drawCount: number;
+  ganRanking: GanNumberStat[];
+  intervals: NumberIntervalStat[];
+}
+
+export interface StatisticsPairsDTO {
+  range: DateRangeConfig;
+  completeness: DataCompletenessEvaluation;
+  drawCount: number;
+  topPairs: PairStat[];
+  reversePairs: ReversePairStat[];
+}
+
+/** Alias for the special prize analysis response */
+export type StatisticsSpecialPrizeDTO = SpecialPrizeAnalysisResponse;
 
 export interface NumberDetailSearchResult {
   number: string;
@@ -450,9 +481,9 @@ export class StatisticsDeepService {
     if (cached) return cached;
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const lotoData = this.computeLotoStatistics(draws, rangeConfig);
-    const specialData = this.computeSpecialPrizeStatistics(draws, rangeConfig);
-    const pairsData = this.computePairStatistics(draws, rangeConfig);
+    const lotoData = this.computeLotoStatistics(draws);
+    const specialData = this.computeSpecialPrizeStatistics(draws);
+    const pairsData = this.computePairStatistics(draws);
     const headTailData = this.computeHeadTailAnalysis(draws);
     const parityData = this.computeParityAnalysis(draws);
     const lowHighData = this.computeLowHighAnalysis(draws);
@@ -502,7 +533,7 @@ export class StatisticsDeepService {
     if (cached) return cached;
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const lotoData = this.computeLotoStatistics(draws, rangeConfig);
+    const lotoData = this.computeLotoStatistics(draws);
     const headTail = this.computeHeadTailAnalysis(draws);
     const parity = this.computeParityAnalysis(draws);
     const lowHigh = this.computeLowHighAnalysis(draws);
@@ -544,7 +575,7 @@ export class StatisticsDeepService {
     if (cached) return cached;
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const lotoData = this.computeLotoStatistics(draws, rangeConfig);
+    const lotoData = this.computeLotoStatistics(draws);
     const intervals = this.computeIntervalStatistics(draws);
 
     const result = {
@@ -573,7 +604,7 @@ export class StatisticsDeepService {
     if (cached) return cached;
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const pairStats = this.computePairStatistics(draws, rangeConfig);
+    const pairStats = this.computePairStatistics(draws);
     const reverseStats = this.computeReversePairStatistics(draws);
 
     const result = {
@@ -602,7 +633,7 @@ export class StatisticsDeepService {
     if (cached) return cached;
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const specialData = this.computeSpecialPrizeStatistics(draws, rangeConfig);
+    const specialData = this.computeSpecialPrizeStatistics(draws);
 
     const result: SpecialPrizeAnalysisResponse = {
       range: rangeConfig,
@@ -631,9 +662,8 @@ export class StatisticsDeepService {
     const rangeConfig = await this.resolveRange(rangeInput);
 
     const { draws, completeness } = await this.getDrawsForRange(rangeConfig);
-    const lotoData = this.computeLotoStatistics(draws, rangeConfig);
-    const specialData = this.computeSpecialPrizeStatistics(draws, rangeConfig);
-    const pairStats = this.computePairStatistics(draws, rangeConfig);
+    const lotoData = this.computeLotoStatistics(draws);
+    const specialData = this.computeSpecialPrizeStatistics(draws);
 
     const lotoStat = lotoData.allNumbers.find((n) => n.number === num) || {
       number: num,
@@ -760,8 +790,8 @@ export class StatisticsDeepService {
       this.getDrawsForRange(rangeConfigB),
     ]);
 
-    const lotoA = this.computeLotoStatistics(resA.draws, rangeConfigA);
-    const lotoB = this.computeLotoStatistics(resB.draws, rangeConfigB);
+    const lotoA = this.computeLotoStatistics(resA.draws);
+    const lotoB = this.computeLotoStatistics(resB.draws);
 
     const sortedA = [...lotoA.allNumbers].sort((a, b) => b.frequency - a.frequency);
     const sortedB = [...lotoB.allNumbers].sort((a, b) => b.frequency - a.frequency);
@@ -824,10 +854,7 @@ export class StatisticsDeepService {
 
   // ─── Computational Sub-Engines ──────────────────────────────────────────────
 
-  /**
-   * Computes LOTO 00–99 statistics across given draws
-   */
-  private computeLotoStatistics(draws: IXSMBDraw[], rangeConfig: DateRangeConfig) {
+  private computeLotoStatistics(draws: IXSMBDraw[]) {
     const totalDraws = draws.length;
     let totalOccurrences = 0;
 
@@ -1053,30 +1080,12 @@ export class StatisticsDeepService {
       return a.number.localeCompare(b.number);
     });
 
-    const hotNumbers: HotNumberStat[] = sortedDesc.map((n, idx) => ({
-      rank: idx + 1,
-      number: n.number,
-      frequency: n.frequency,
-      percentage: n.percentage,
-      recentFrequency: n.recentFrequency,
-      streak: n.streak,
-      lastAppearance: n.lastAppearance,
-    }));
-
     // Cold Numbers (sorted by freq ASC, currentGap DESC)
     const sortedAsc = [...allNumbers].sort((a, b) => {
       if (a.frequency !== b.frequency) return a.frequency - b.frequency;
       if (b.currentGap !== a.currentGap) return b.currentGap - a.currentGap;
       return a.number.localeCompare(b.number);
     });
-
-    const coldNumbers: ColdNumberStat[] = sortedAsc.map((n, idx) => ({
-      rank: idx + 1,
-      number: n.number,
-      frequency: n.frequency,
-      currentGap: n.currentGap,
-      lastAppearance: n.lastAppearance,
-    }));
 
     //   ranking sorted by currentGap DESC, then avgGap DESC
     ganRankingList.sort((a, b) => {
@@ -1235,10 +1244,7 @@ export class StatisticsDeepService {
     return result.sort((a, b) => b.currentStreak - a.currentStreak || b.longestStreak - a.longestStreak);
   }
 
-  /**
-   * Computes co-occurring pairs (A, B) in the same draw
-   */
-  private computePairStatistics(draws: IXSMBDraw[], rangeConfig: DateRangeConfig) {
+  private computePairStatistics(draws: IXSMBDraw[]) {
     const totalDraws = draws.length;
     const pairMap = new Map<string, { count: number; lastDate: string | null; lastDrawIndex: number }>();
 
@@ -1510,7 +1516,7 @@ export class StatisticsDeepService {
         if (!isNaN(t)) tailDist[t]++;
       });
 
-      const [year, month, day] = draw.drawDate.split('-');
+      const [, month, day] = draw.drawDate.split('-');
 
       return {
         date: draw.drawDate,
@@ -1530,10 +1536,7 @@ export class StatisticsDeepService {
     });
   }
 
-  /**
-   * Computes Special Prize (Giải Đặc Biệt) 2 last digits isolated analysis
-   */
-  private computeSpecialPrizeStatistics(draws: IXSMBDraw[], rangeConfig: DateRangeConfig) {
+  private computeSpecialPrizeStatistics(draws: IXSMBDraw[]) {
     const totalDraws = draws.length;
 
     interface SpecialTrack {

@@ -27,6 +27,7 @@ import type {
   PaginatedResult,
   IXSMBDrawValidation,
 } from '../types/db-types';
+import { xsmbMemoryCache } from '../../cache/xsmb-l1-cache';
 
 export class XSMBDrawRepository {
   /**
@@ -194,7 +195,10 @@ export class XSMBDrawRepository {
       status,
     });
 
-    return created.toObject<IXSMBDraw>();
+    const doc = created.toObject<IXSMBDraw>();
+    // Invalidate L1 cache for this date
+    xsmbMemoryCache.delete(`draw:date:${doc.drawDate}`);
+    return doc;
   }
 
   /**
@@ -246,6 +250,9 @@ export class XSMBDrawRepository {
     if (!doc) {
       throw new Error(`Failed to upsert draw for date ${data.drawDate}`);
     }
+
+    // Invalidate L1 cache for this date
+    xsmbMemoryCache.delete(`draw:date:${data.drawDate}`);
 
     return doc;
   }
@@ -313,6 +320,13 @@ export class XSMBDrawRepository {
       { returnDocument: 'after', runValidators: true }
     ).lean<IXSMBDraw>();
 
+    // Invalidate L1 cache for the affected date
+    if (updated?.drawDate) {
+      xsmbMemoryCache.delete(`draw:date:${updated.drawDate}`);
+    } else if (dateOrId.includes('-')) {
+      xsmbMemoryCache.delete(`draw:date:${dateOrId}`);
+    }
+
     return updated;
   }
 
@@ -333,6 +347,9 @@ export class XSMBDrawRepository {
   ): Promise<boolean> {
     await this.ensureConnection();
     const res = await XSMBDrawModel.deleteOne({ drawDate: date, lotteryType });
+    if (res.deletedCount > 0) {
+      xsmbMemoryCache.delete(`draw:date:${date}`);
+    }
     return res.deletedCount > 0;
   }
 

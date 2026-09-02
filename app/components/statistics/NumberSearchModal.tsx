@@ -20,14 +20,14 @@ export default function NumberSearchModal({
   onSelectAnotherNumber,
 }: NumberSearchModalProps) {
   const [searchQuery, setSearchQuery] = useState(initialNumber);
+  const [prevInitialNumber, setPrevInitialNumber] = useState(initialNumber);
+  if (initialNumber !== prevInitialNumber) {
+    setPrevInitialNumber(initialNumber);
+    setSearchQuery(initialNumber);
+  }
+
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<NumberDetailSearchResult | null>(null);
-
-  useEffect(() => {
-    if (initialNumber) {
-      setSearchQuery(initialNumber);
-    }
-  }, [initialNumber]);
 
   useEffect(() => {
     if (!isOpen) return;

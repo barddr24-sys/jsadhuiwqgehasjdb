@@ -64,7 +64,6 @@ export default function NumberDetailScreen({ initialNumber }: NumberDetailScreen
 
   // Fetch real draws from API
   const fetchRealDraws = useCallback(async (signal?: AbortSignal) => {
-    setUiState('loading');
     try {
       // 1. Fetch today's draw
       const todayRes = await fetch('/api/v1/xsmb/today', { cache: 'no-store', signal });
@@ -84,7 +83,7 @@ export default function NumberDetailScreen({ initialNumber }: NumberDetailScreen
             giaiSau: dto.results.sixthPrize || [],
             giaiBay: dto.results.seventhPrize || [],
           };
-          const [year, month, day] = dto.date.split('-');
+          const [, month, day] = dto.date.split('-');
           todayDraw = {
             date: dto.date,
             dayOfWeek: getDayOfWeekVN(dto.date),
@@ -94,47 +93,37 @@ export default function NumberDetailScreen({ initialNumber }: NumberDetailScreen
         }
       }
 
-      // 2. Fetch recent historical draws for 3-day / 7-day computations
-      const historyRes = await fetch('/api/v1/xsmb/history?pageSize=90', { cache: 'no-store', signal });
+      // 2. Fetch recent historical draws with results included in a SINGLE request
+      const historyRes = await fetch('/api/v1/xsmb/history?pageSize=90&includeResults=true', { cache: 'no-store', signal });
       let historyItems: HistorySummaryItemDTO[] = [];
       if (historyRes.ok) {
         const historyJson = await historyRes.json();
         historyItems = historyJson.data?.items || historyJson.data || [];
       }
 
-      const drawPromises = historyItems.map(async (item) => {
-        if (todayDraw && item.date === todayDraw.date) return todayDraw;
-        try {
-          const detailRes = await fetch(`/api/v1/xsmb/results/${item.date}`, { cache: 'no-store', signal });
-          if (!detailRes.ok) return null;
-          const detailJson = await detailRes.json();
-          const dto: DrawResponseDTO = detailJson.data;
-          const r = dto.results;
-          if (!r) return null;
-
+      const historyResolved: HistoricalDrawRecord[] = historyItems
+        .map((item) => {
+          if (todayDraw && item.date === todayDraw.date) return todayDraw;
+          const r = item.results;
           const p: XSMBPrizes = {
-            dacBiet: r.special || [],
-            giaiNhat: r.firstPrize || [],
-            giaiNhi: r.secondPrize || [],
-            giaiBa: r.thirdPrize || [],
-            giaiTu: r.fourthPrize || [],
-            giaiNam: r.fifthPrize || [],
-            giaiSau: r.sixthPrize || [],
-            giaiBay: r.seventhPrize || [],
+            dacBiet: item.special || r?.special || [],
+            giaiNhat: item.firstPrize || r?.firstPrize || [],
+            giaiNhi: item.secondPrize || r?.secondPrize || [],
+            giaiBa: item.thirdPrize || r?.thirdPrize || [],
+            giaiTu: item.fourthPrize || r?.fourthPrize || [],
+            giaiNam: item.fifthPrize || r?.fifthPrize || [],
+            giaiSau: item.sixthPrize || r?.sixthPrize || [],
+            giaiBay: item.seventhPrize || r?.seventhPrize || [],
           };
-          const [year, month, day] = item.date.split('-');
+          const [, month, day] = item.date.split('-');
           return {
             date: item.date,
             dayOfWeek: getDayOfWeekVN(item.date),
             shortDate: `${day}/${month}`,
             prizes: p,
           } as HistoricalDrawRecord;
-        } catch {
-          return null;
-        }
-      });
-
-      const historyResolved = (await Promise.all(drawPromises)).filter(Boolean) as HistoricalDrawRecord[];
+        })
+        .filter(Boolean);
 
       const combined = [...historyResolved];
       if (todayDraw && !combined.some((d) => d.date === todayDraw!.date)) {

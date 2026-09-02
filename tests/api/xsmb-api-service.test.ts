@@ -1,13 +1,9 @@
-/**
- * XSMB Application Service Integration Tests
- */
-
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { connectToDatabase, disconnectFromDatabase } from '../../app/lib/db/connection';
 import { XSMBDrawModel } from '../../app/lib/db/models/xsmb-draw.model';
 import { xsmbDrawRepository } from '../../app/lib/db/repositories/xsmb-draw.repository';
-import { XSMBAPIService } from '../../app/lib/services/xsmb-api.service';
+import { XSMBAPIService, clearXSMBCache } from '../../app/lib/services/xsmb-api.service';
 import { DRAW_STATUS, LOTTERY_TYPE } from '../../app/lib/db/config/status-config';
 import { XSMBAPIError } from '../../app/lib/api/api-response';
 import { getTodayVN, addDays } from '../../app/lib/date-utils';
@@ -39,6 +35,7 @@ describe('XSMBAPIService Integration Tests', () => {
 
   beforeEach(async () => {
     await XSMBDrawModel.deleteMany({});
+    clearXSMBCache(); // clear L1 cache between tests to prevent pollution
     service = new XSMBAPIService(xsmbDrawRepository);
   });
 

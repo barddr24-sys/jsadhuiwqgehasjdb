@@ -2,12 +2,13 @@
 
 import React from 'react';
 import type { StatisticsOverviewDTO } from '@/app/lib/services/statistics-deep.service';
+import type { StatisticsTabKey } from '../StatisticsTabNavigation';
 import { toDDMMYYYYDash } from '@/app/lib/date-utils';
 
 interface OverviewTabProps {
   data: StatisticsOverviewDTO;
   onInspectNumber: (num: string) => void;
-  onNavigateTab: (tabKey: any) => void;
+  onNavigateTab: (tabKey: StatisticsTabKey) => void;
 }
 
 export default function OverviewTab({

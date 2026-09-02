@@ -64,13 +64,17 @@ export default function LotoTableTab({ allNumbers, onInspectNumber }: LotoTableT
 
     // 5. Sorting
     result.sort((a, b) => {
-      let valA: any = a[sortField];
-      let valB: any = b[sortField];
+      let valA: string | number | null | undefined = a[sortField];
+      let valB: string | number | null | undefined = b[sortField];
 
       if (sortField === 'lastAppearance') {
-        valA = valA ? new Date(valA).getTime() : 0;
-        valB = valB ? new Date(valB).getTime() : 0;
+        valA = typeof valA === 'string' ? new Date(valA).getTime() : 0;
+        valB = typeof valB === 'string' ? new Date(valB).getTime() : 0;
       }
+
+      if (valA == null && valB == null) return 0;
+      if (valA == null) return sortAsc ? -1 : 1;
+      if (valB == null) return sortAsc ? 1 : -1;
 
       if (valA < valB) return sortAsc ? -1 : 1;
       if (valA > valB) return sortAsc ? 1 : -1;

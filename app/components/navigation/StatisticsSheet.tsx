@@ -21,21 +21,26 @@ export default function StatisticsSheet({
   const [fetchedStats, setFetchedStats] = useState<StatPreviewItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const displayedStats =
+    filterPeriod === '7' && stats && stats.length > 0
+      ? stats
+      : fetchedStats;
+
   useEffect(() => {
     if (!isOpen) return;
     if (stats && stats.length > 0 && filterPeriod === '7') {
-      setFetchedStats(stats);
       return;
     }
 
+    let isMounted = true;
     const controller = new AbortController();
-    setIsLoading(true);
     fetch(`/api/v1/xsmb/statistics?days=${filterPeriod}`, {
       cache: 'no-store',
       signal: controller.signal,
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
+        if (!isMounted) return;
         if (json?.data) {
           const dto: StatisticsResponseDTO = json.data;
           const mapped: StatPreviewItem[] = (dto.topNumbers || []).map((item) => ({
@@ -48,13 +53,16 @@ export default function StatisticsSheet({
         }
       })
       .catch(() => {
-        setFetchedStats([]);
+        if (isMounted) setFetchedStats([]);
       })
       .finally(() => {
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       });
 
-    return () => controller.abort();
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
   }, [isOpen, filterPeriod, stats]);
 
   if (!isOpen) return null;
@@ -143,7 +151,12 @@ export default function StatisticsSheet({
           }}
         >
           <button
-            onClick={() => setFilterPeriod('7')}
+            onClick={() => {
+              if (filterPeriod !== '7') {
+                setIsLoading(true);
+                setFilterPeriod('7');
+              }
+            }}
             style={{
               flex: 1,
               padding: '8px 0',
@@ -160,7 +173,12 @@ export default function StatisticsSheet({
             7 ngày gần nhất
           </button>
           <button
-            onClick={() => setFilterPeriod('3')}
+            onClick={() => {
+              if (filterPeriod !== '3') {
+                setIsLoading(true);
+                setFilterPeriod('3');
+              }
+            }}
             style={{
               flex: 1,
               padding: '8px 0',
@@ -183,13 +201,13 @@ export default function StatisticsSheet({
           <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px 0', fontSize: 13 }}>
             Đang tải thống kê…
           </p>
-        ) : fetchedStats.length === 0 ? (
+        ) : displayedStats.length === 0 ? (
           <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '24px 0', fontSize: 13 }}>
             Chưa có dữ liệu thống kê
           </p>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-            {fetchedStats.map((item) => (
+            {displayedStats.map((item) => (
               <button
                 key={item.number}
                 onClick={() => {

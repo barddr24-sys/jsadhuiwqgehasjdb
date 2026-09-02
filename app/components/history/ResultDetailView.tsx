@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useTransition, useMemo, useEffect, useCallback } from 'react';
+import { useState, useTransition, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getDayOfWeekVN, addDays, isFutureDate, isToday, toDDMMYYYYDash } from '@/app/lib/date-utils';
+import { getDayOfWeekVN, addDays, isFutureDate, isToday } from '@/app/lib/date-utils';
 import type { HistoryUiState } from './HistoryStateSwitcherModal';
 import type { DrawResponseDTO } from '@/app/lib/services/xsmb-api.service';
 import type { XSMBPrizes, DrawLifecycleState } from '@/app/lib/xsmb-types';
@@ -38,9 +38,7 @@ export default function ResultDetailView({
   // Real draw details from API
   const [prizes, setPrizes] = useState<XSMBPrizes | null>(null);
   const [specialPrize, setSpecialPrize] = useState<string | null>(null);
-  const [specialTwoDigit, setSpecialTwoDigit] = useState<string | null>(null);
   const [status, setStatus] = useState<DrawLifecycleState>('COMPLETED');
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   // Number inspection modal state
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
@@ -50,7 +48,6 @@ export default function ResultDetailView({
   const [, startTransition] = useTransition();
 
   const fetchDetail = useCallback(async (targetDate: string, signal?: AbortSignal) => {
-    setUiState('loading');
     try {
       const res = await fetch(`/api/v1/xsmb/results/${targetDate}`, {
         cache: 'no-store',
@@ -61,7 +58,6 @@ export default function ResultDetailView({
         if (res.status === 404) {
           setPrizes(null);
           setSpecialPrize(null);
-          setSpecialTwoDigit(null);
           setUiState('empty');
           return;
         }
@@ -74,7 +70,6 @@ export default function ResultDetailView({
       if (!dto || !dto.results) {
         setPrizes(null);
         setSpecialPrize(null);
-        setSpecialTwoDigit(null);
         setUiState('empty');
         return;
       }
@@ -95,7 +90,6 @@ export default function ResultDetailView({
       if (!hasPrizes) {
         setPrizes(null);
         setSpecialPrize(null);
-        setSpecialTwoDigit(null);
         setUiState('empty');
         return;
       }
@@ -103,7 +97,6 @@ export default function ResultDetailView({
       setPrizes(mappedPrizes);
       const sp = mappedPrizes.dacBiet[0] || null;
       setSpecialPrize(sp);
-      setSpecialTwoDigit(sp && sp.length >= 2 ? sp.slice(-2) : null);
 
       if (dto.status === 'READY') {
         setStatus('COMPLETED');
@@ -114,21 +107,6 @@ export default function ResultDetailView({
       } else {
         setStatus('COMPLETED');
         setUiState('ready');
-      }
-
-      if (dto.updatedAt) {
-        try {
-          const d = new Date(dto.updatedAt);
-          setUpdatedAt(
-            d.toLocaleTimeString('vi-VN', {
-              timeZone: 'Asia/Ho_Chi_Minh',
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          );
-        } catch {
-          setUpdatedAt(null);
-        }
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -162,14 +140,6 @@ export default function ResultDetailView({
       navigator.clipboard.writeText(num).catch(() => {});
     }
     showToast(`Đã sao chép số ${num}`);
-  };
-
-  const handleShareSummary = () => {
-    const summary = `XSMB ngày ${displayDate} (${dayOfWeek}):\nĐặc Biệt: ${specialPrize || '---'}\nGiải Nhất: ${prizes?.giaiNhat[0] || '---'}`;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(summary).catch(() => {});
-    }
-    showToast('Đã sao chép tóm tắt kết quả');
   };
 
   const handleInspectNumber = (num: string) => {

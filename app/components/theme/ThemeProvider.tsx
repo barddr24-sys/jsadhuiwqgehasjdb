@@ -22,84 +22,98 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_KEY = 'theme_preference';
 const FONT_SIZE_KEY = 'font_size_preference';
 
+function getInitialTheme(): ThemePreference {
+  if (typeof window === 'undefined') return 'system';
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+  } catch {}
+  return 'system';
+}
+
+function getInitialFontSize(): FontSizePreference {
+  if (typeof window === 'undefined') return '100%';
+  try {
+    const saved = localStorage.getItem(FONT_SIZE_KEY);
+    if (saved === '100%' || saved === '115%' || saved === '130%') return saved as FontSizePreference;
+  } catch {}
+  return '100%';
+}
+
+function getInitialResolvedTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') return 'light';
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+  } catch {}
+  return 'light';
+}
+
+function applyThemeDOM(pref: ThemePreference) {
+  if (typeof window === 'undefined') return;
+
+  const root = document.documentElement;
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = pref === 'dark' || (pref === 'system' && systemDark);
+
+  root.classList.remove('light', 'dark');
+  root.classList.add(isDark ? 'dark' : 'light');
+  root.setAttribute('data-theme', pref);
+}
+
+function applyFontSizeDOM(size: FontSizePreference) {
+  if (typeof window === 'undefined') return;
+  document.documentElement.setAttribute('data-font-size', size);
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemePreference>('system');
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
-  const [fontSize, setFontSizeState] = useState<FontSizePreference>('100%');
+  const [theme, setThemeState] = useState<ThemePreference>(getInitialTheme);
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(getInitialResolvedTheme);
+  const [fontSize, setFontSizeState] = useState<FontSizePreference>(getInitialFontSize);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Apply theme to DOM
-  const applyTheme = useCallback((pref: ThemePreference) => {
-    if (typeof window === 'undefined') return;
-
-    const root = document.documentElement;
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const isDark = pref === 'dark' || (pref === 'system' && systemDark);
-
-    root.classList.remove('light', 'dark');
-    root.classList.add(isDark ? 'dark' : 'light');
-    root.setAttribute('data-theme', pref);
-    setResolvedTheme(isDark ? 'dark' : 'light');
-  }, []);
-
-  // Apply font size to DOM
-  const applyFontSize = useCallback((size: FontSizePreference) => {
-    if (typeof window === 'undefined') return;
-    document.documentElement.setAttribute('data-font-size', size);
-  }, []);
-
-  // Initialize from localStorage on mount
+  // Initialize DOM attributes on mount
   useEffect(() => {
-    try {
-      const savedTheme = localStorage.getItem(THEME_KEY) as ThemePreference | null;
-      if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
-        setThemeState(savedTheme);
-        applyTheme(savedTheme);
-      } else {
-        applyTheme('system');
-      }
-
-      const savedFontSize = localStorage.getItem(FONT_SIZE_KEY) as FontSizePreference | null;
-      if (savedFontSize === '100%' || savedFontSize === '115%' || savedFontSize === '130%') {
-        setFontSizeState(savedFontSize);
-        applyFontSize(savedFontSize);
-      } else {
-        applyFontSize('100%');
-      }
-    } catch {
-      applyTheme('system');
-      applyFontSize('100%');
-    }
-  }, [applyTheme, applyFontSize]);
+    applyThemeDOM(theme);
+    applyFontSizeDOM(fontSize);
+  }, [theme, fontSize]);
 
   // Listen for system theme changes
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (theme === 'system') {
-        applyTheme('system');
+        applyThemeDOM('system');
+        setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
       }
     };
 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme, applyTheme]);
+  }, [theme]);
 
   const setTheme = useCallback((newTheme: ThemePreference) => {
     setThemeState(newTheme);
+    const isDark =
+      newTheme === 'dark' ||
+      (newTheme === 'system' &&
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+    setResolvedTheme(isDark ? 'dark' : 'light');
     try {
       localStorage.setItem(THEME_KEY, newTheme);
     } catch {}
-    applyTheme(newTheme);
-  }, [applyTheme]);
+    applyThemeDOM(newTheme);
+  }, []);
 
   const setFontSize = useCallback((newFontSize: FontSizePreference) => {
     setFontSizeState(newFontSize);
     try {
       localStorage.setItem(FONT_SIZE_KEY, newFontSize);
     } catch {}
-    applyFontSize(newFontSize);
-  }, [applyFontSize]);
+    applyFontSizeDOM(newFontSize);
+  }, []);
 
   const openSettings = useCallback(() => setIsSettingsOpen(true), []);
   const closeSettings = useCallback(() => setIsSettingsOpen(false), []);

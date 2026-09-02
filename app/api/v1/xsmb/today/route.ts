@@ -13,10 +13,13 @@ export async function GET(request?: NextRequest) {
   void request;
   try {
     const data = await xsmbAPIService.getTodayDraw();
+    const timing = data.durationMs ? `db;dur=${data.durationMs}` : 'db;dur=1';
     return apiSuccess(data, 200, {
       'Cache-Control': data.isComplete
         ? 'public, max-age=300, stale-while-revalidate=60'
         : 'public, max-age=15, stale-while-revalidate=15',
+      'Server-Timing': timing,
+      'X-Data-Source': data.sourceType || 'mongodb',
     });
   } catch (error) {
     return handleApiError(error);

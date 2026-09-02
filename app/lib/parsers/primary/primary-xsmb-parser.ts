@@ -199,7 +199,6 @@ export class PrimaryXSMBParser implements XSMBParser {
       // Filter out placeholder-only tokens before validation
       const allTokens = rawPrizes[tier];
       const numericTokens = allTokens.filter(t => isNumericString(t));
-      const placeholders = allTokens.filter(t => PLACEHOLDER_PATTERN.test(t));
       const genuinelyMalformed = allTokens.filter(
         t => !isNumericString(t) && !PLACEHOLDER_PATTERN.test(t)
       );

@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import type { TwoDigitRangeParam } from '@/app/lib/api/validators';
 import type { TwoDigitItemDTO, TwoDigitTableResponseDTO } from '@/app/lib/services/xsmb-api.service';
 
@@ -41,6 +42,7 @@ export default function TwoDigitTable({
   onInspectNumber,
   className = '',
 }: TwoDigitTableProps) {
+  const router = useRouter();
   const [activeRange, setActiveRange] = useState<TwoDigitRangeParam>(initialRange);
   const [data, setData] = useState<TwoDigitTableResponseDTO | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -56,9 +58,6 @@ export default function TwoDigitTable({
   // ─── Fetch data from MongoDB via REST API ───────────────────────────────────
   const fetchData = useCallback(
     async (range: TwoDigitRangeParam, signal?: AbortSignal) => {
-      setIsLoading(true);
-      setError(null);
-
       try {
         const res = await fetch(`/api/v1/xsmb/two-digit-table?range=${range}`, {
           cache: 'no-store',
@@ -72,6 +71,7 @@ export default function TwoDigitTable({
         const json = await res.json();
         const payload: TwoDigitTableResponseDTO = json.data;
         setData(payload);
+        setError(null);
 
         // Update active modal item reference if still open
         if (activeModalItem) {
@@ -163,8 +163,8 @@ export default function TwoDigitTable({
     setActiveModalItem(null);
     if (onInspectNumber) {
       onInspectNumber(num);
-    } else if (typeof window !== 'undefined') {
-      window.location.href = `/number/${num}`;
+    } else {
+      router.push(`/number/${num}`);
     }
   };
 
@@ -295,7 +295,12 @@ export default function TwoDigitTable({
               key={tab.id}
               id={`tab-two-digit-${tab.id}`}
               type="button"
-              onClick={() => setActiveRange(tab.id)}
+              onClick={() => {
+                if (activeRange !== tab.id) {
+                  setIsLoading(true);
+                  setActiveRange(tab.id);
+                }
+              }}
               className="touch-press"
               style={{
                 padding: '6px 2px',

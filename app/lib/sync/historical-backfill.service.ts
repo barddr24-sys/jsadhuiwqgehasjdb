@@ -17,7 +17,7 @@ import {
   type DataCompletenessEvaluation,
 } from '../services/statistics-date-range.service';
 import { StatisticsCacheService } from '../services/statistics-cache.service';
-import { getTodayVN, addDays } from '../date-utils';
+import { getTodayVN } from '../date-utils';
 
 export interface BackfillOptions {
   windowDays?: number; // Target window in days (default: 35)
