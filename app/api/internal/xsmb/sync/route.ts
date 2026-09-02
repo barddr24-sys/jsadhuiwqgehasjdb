@@ -1,7 +1,8 @@
 /**
  * XSMB Protected Internal Synchronization Route
  *
- * Invoked by Vercel Cron or secure internal triggers.
+ * Invoked by Vercel Cron (once per day at 11:15 UTC / 18:15 Vietnam time)
+ * or secure internal triggers.
  *
  * Security:
  * - Requires Authorization: Bearer <XSMB_CRON_SECRET> header or CRON_SECRET matching.
@@ -9,17 +10,25 @@
  * - Rejects unauthorized requests with 401 Unauthorized.
  *
  * Architecture:
- * Vercel Cron -> Protected Internal Sync Route -> XSMBSyncService -> MongoDB Atlas
+ * Vercel Cron (15 11 * * * UTC) -> Protected Internal Sync Route -> XSMBSyncService -> MongoDB Atlas
+ *
+ * Daily execution flow:
+ *   1. Authenticate cron request (XSMB_CRON_SECRET / CRON_SECRET).
+ *   2. Fetch and sync today's XSMB lottery result.
+ *   3. Invalidate in-memory statistics cache.
+ *   4. Enforce 30-day data retention (delete records older than 30 days).
+ *   5. Return sanitized response.
  *
  * Supported modes (via query params):
- *   ?date=YYYY-MM-DD           -> single date sync (default: today)
- *   ?days=N                    -> batch sync last N days (up to 365)
+ *   ?date=YYYY-MM-DD               -> single date sync (default: today)
+ *   ?days=N                        -> batch sync last N days (up to 365)
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD -> batch sync date range
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { xsmbSyncService } from '../../../../lib/sync/xsmb-sync.service';
 import { getTodayVN, isValidDateStr } from '../../../../lib/date-utils';
+import { StatisticsCacheService } from '../../../../lib/services/statistics-cache.service';
 
 /**
  * Validates the authorization header against the configured server secret.
@@ -165,6 +174,40 @@ async function handleSync(request: NextRequest) {
     const syncResult = await xsmbSyncService.syncDate(targetDate);
     const durationMs = Date.now() - startedAt;
 
+    // ── Post-sync: Invalidate statistics cache ─────────────────────────────
+    // Ensures stale aggregations are not served after new draw data is ingested.
+    if (syncResult.status === 'SUCCESS' || syncResult.status === 'NO_CHANGE') {
+      StatisticsCacheService.invalidateAll();
+    }
+
+    // ── Post-sync: Enforce 30-day data retention ───────────────────────────
+    // Deletes draws, sync runs, and sync attempts older than 30 days.
+    // Runs concurrently and non-blocking; errors are logged but do not fail the response.
+    // Only runs on a valid sync (not on FAILED), to avoid excessive DB load on failures.
+    let retentionResult: { deletedDraws: number; deletedRuns: number; deletedAttempts: number } | null = null;
+    if (syncResult.status !== 'FAILED') {
+      try {
+        retentionResult = await xsmbSyncService.enforceRetention(30);
+        if (
+          retentionResult.deletedDraws > 0 ||
+          retentionResult.deletedRuns > 0 ||
+          retentionResult.deletedAttempts > 0
+        ) {
+          console.log(
+            `[Internal Sync] Retention cleanup: removed ${retentionResult.deletedDraws} draws, ` +
+            `${retentionResult.deletedRuns} sync runs, ${retentionResult.deletedAttempts} sync attempts ` +
+            `older than 30 days.`
+          );
+        }
+      } catch (retentionError: unknown) {
+        // Non-fatal: retention failure must not break the sync response.
+        console.warn(
+          '[Internal Sync] Retention cleanup failed (non-fatal):',
+          retentionError instanceof Error ? retentionError.message : String(retentionError)
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         success: syncResult.status !== 'FAILED',
@@ -178,6 +221,7 @@ async function handleSync(request: NextRequest) {
           isChanged: syncResult.status === 'SUCCESS',
           errorMessage: syncResult.errorMessage,
           durationMs,
+          ...(retentionResult !== null ? { retention: retentionResult } : {}),
         },
       },
       {

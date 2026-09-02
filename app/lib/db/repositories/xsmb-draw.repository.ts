@@ -335,6 +335,24 @@ export class XSMBDrawRepository {
     const res = await XSMBDrawModel.deleteOne({ drawDate: date, lotteryType });
     return res.deletedCount > 0;
   }
+
+  /**
+   * Deletes all draws older than the given cutoff date string (YYYY-MM-DD).
+   * Uses the indexed drawDate field for efficient deletion.
+   * Returns the number of documents deleted.
+   */
+  async deleteOlderThan(
+    cutoffDate: string,
+    lotteryType: LotteryType = LOTTERY_TYPE.XSMB
+  ): Promise<number> {
+    await this.ensureConnection();
+    const res = await XSMBDrawModel.deleteMany({
+      lotteryType,
+      drawDate: { $lt: cutoffDate },
+    });
+    return res.deletedCount ?? 0;
+  }
 }
 
 export const xsmbDrawRepository = new XSMBDrawRepository();
+

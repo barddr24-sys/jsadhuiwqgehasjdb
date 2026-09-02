@@ -59,6 +59,19 @@ export class XSMBSyncRunRepository {
     await this.ensureConnection();
     return XSMBSyncRunModel.findOne({ syncRunId }).lean<IXSMBSyncRun>();
   }
+
+  /**
+   * Deletes sync run records started before the given cutoff date.
+   * Returns the number of documents deleted.
+   */
+  async deleteOlderThan(cutoffDate: Date): Promise<number> {
+    await this.ensureConnection();
+    const res = await XSMBSyncRunModel.deleteMany({
+      startedAt: { $lt: cutoffDate },
+    });
+    return res.deletedCount ?? 0;
+  }
 }
 
 export const xsmbSyncRunRepository = new XSMBSyncRunRepository();
+

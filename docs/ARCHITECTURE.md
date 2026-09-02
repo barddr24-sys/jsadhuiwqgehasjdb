@@ -149,10 +149,17 @@ modules / components:
 
 * **Serverless Execution**: Next.js runs as Vercel Serverless Functions.
 * **No Long-Lived In-Process Daemons**: In-process `setTimeout` loops are disabled when running on Vercel (`VERCEL=1`).
-* **Vercel Cron Trigger**:
+* **Vercel Cron Trigger** (Hobby Plan — 1 execution per day):
+  * Schedule: `15 11 * * *` UTC = **11:15 UTC / 18:15 Vietnam Time (Asia/Ho_Chi_Minh)**.
   * Configured in [`vercel.json`](../vercel.json).
-  * Automatically sends scheduled requests to the protected internal route `/api/internal/xsmb/sync`.
+  * Automatically sends one scheduled request per day to `/api/internal/xsmb/sync`.
   * Authenticated via `Authorization: Bearer ${XSMB_CRON_SECRET}`.
+  * Post-sync, the route invalidates the statistics in-memory cache and enforces a **30-day data retention** policy.
+
+> [!IMPORTANT]
+> Do NOT add multiple Vercel Cron Jobs to simulate higher frequency — the Hobby plan
+> permits only one cron execution per day. All synchronisation must complete within the
+> single daily invocation.
 
 ---
 
@@ -170,3 +177,20 @@ modules / components:
 | `XSMB_HTTP_TIMEOUT_MS` | Optional | HTTP request timeout in ms | `10000` |
 | `XSMB_HTTP_MAX_RETRIES` | Optional | Maximum HTTP retry attempts | `2` |
 | `XSMB_SCHEDULER_ENABLED` | Optional | Enable in-process scheduler (local dev only) | `true` |
+
+---
+
+## 9. Data Retention Policy
+
+The system retains approximately the **last 30 days** of lottery records to minimise MongoDB Atlas storage usage.
+
+After each daily Vercel Cron sync the route automatically prunes:
+
+| Collection | Retention Key | Cutoff |
+|---|---|---|
+| `xsmb_draws` | `drawDate` (indexed string) | older than 30 days |
+| `xsmb_sync_runs` | `startedAt` (indexed Date) | older than 30 days |
+| `xsmb_sync_attempts` | `startedAt` (indexed Date) | older than 30 days |
+
+Deletion is performed using MongoDB indexed fields and does **not** perform full collection scans.
+

@@ -1049,6 +1049,39 @@ export class XSMBSyncService {
       durationMs: Date.now() - startTime,
     };
   }
+  /**
+   * Enforces data retention policy by removing records older than `keepDays` days.
+   *
+   * Deletes from:
+   *   - xsmb_draws:         draws with drawDate < cutoff
+   *   - xsmb_sync_runs:     runs started before cutoff
+   *   - xsmb_sync_attempts: attempts started before cutoff
+   *
+   * Runs efficiently using indexed date fields. Does NOT scan the entire collection.
+   * Safe to call after every daily sync.
+   */
+  async enforceRetention(keepDays: number = 30): Promise<{
+    deletedDraws: number;
+    deletedRuns: number;
+    deletedAttempts: number;
+  }> {
+    const cutoffMs = Date.now() - keepDays * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(cutoffMs);
+
+    // YYYY-MM-DD string for draw repository (draws use string dates)
+    const y = cutoffDate.getUTCFullYear();
+    const m = String(cutoffDate.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(cutoffDate.getUTCDate()).padStart(2, '0');
+    const cutoffDateStr = `${y}-${m}-${d}`;
+
+    const [deletedDraws, deletedRuns, deletedAttempts] = await Promise.all([
+      this.drawRepository.deleteOlderThan(cutoffDateStr),
+      this.syncRunRepository.deleteOlderThan(cutoffDate),
+      this.syncAttemptRepository.deleteOlderThan(cutoffDate),
+    ]);
+
+    return { deletedDraws, deletedRuns, deletedAttempts };
+  }
 }
 
 export const xsmbSyncService = new XSMBSyncService();

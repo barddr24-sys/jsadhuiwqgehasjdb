@@ -12,6 +12,7 @@ import { xsmbSyncService } from '../../app/lib/sync/xsmb-sync.service';
 vi.mock('../../app/lib/sync/xsmb-sync.service', () => ({
   xsmbSyncService: {
     syncDate: vi.fn(),
+    enforceRetention: vi.fn().mockResolvedValue({ deletedDraws: 0, deletedRuns: 0, deletedAttempts: 0 }),
   },
 }));
 

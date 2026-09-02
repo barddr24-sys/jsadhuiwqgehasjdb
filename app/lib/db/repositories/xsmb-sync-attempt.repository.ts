@@ -60,6 +60,19 @@ export class XSMBSyncAttemptRepository {
       .limit(limit)
       .lean<IXSMBSyncAttempt[]>();
   }
+
+  /**
+   * Deletes sync attempt records started before the given cutoff date.
+   * Returns the number of documents deleted.
+   */
+  async deleteOlderThan(cutoffDate: Date): Promise<number> {
+    await this.ensureConnection();
+    const res = await XSMBSyncAttemptModel.deleteMany({
+      startedAt: { $lt: cutoffDate },
+    });
+    return res.deletedCount ?? 0;
+  }
 }
 
 export const xsmbSyncAttemptRepository = new XSMBSyncAttemptRepository();
+
